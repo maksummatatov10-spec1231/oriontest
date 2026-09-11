@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Build orion_menu_patchN.swf / orion_experemental_patchN.swf with in-SWF menu.
 
-Critical: AVM2 verifies EVERY method when the class loads. Unassigned locals
-or stack mismatches in Game.update make AIR show only the preloader background.
+Critical: AVM2 verifies EVERY method of a class when that class loads.
+Patching Game.update killed the lobby (Start button) even though update only
+runs in-game: frame2 script inits Game, verify fails, whole ABC script dies.
+We patch the empty Game.preUpdate instead and leave original update intact.
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 1
+PATCH = 2
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -223,10 +225,23 @@ class A(Asm):
         self._use(-1)
         self.op(0x30)
 
+    def returnvoid(self):
+        super().returnvoid()
+        self.reachable = False
+
     def finish(self) -> bytes:
         if self.stack != 0 and self.reachable:
             raise RuntimeError(f"finish stack={self.stack}")
         return super().finish()
+
+
+def find_game_preupdate(abc: Abc):
+    for inst in abc.instances:
+        if inst["name"] == "orion::Game":
+            for t in inst["traits"]:
+                if t.get("slot") == "method" and t["mn"].split("::")[-1] == "preUpdate":
+                    return t["method"]
+    raise SystemExit("orion::Game.preUpdate not found")
 
 
 def hit(a: A, mx, my, x, y, w, h, miss):
@@ -286,9 +301,12 @@ def assert_abc_ok(abc_bytes: bytes, expect_instances: int):
         raise RuntimeError(f"instances {len(a.instances)} != {expect_instances} (ABC corrupted)")
     if len(a.bodies) < 1000:
         raise RuntimeError("too few method bodies")
-    mid = find_game_update(a)
-    if a.body_meta[mid]["code_len"] < 400:
-        raise RuntimeError("update body too small")
+    upd = find_game_update(a)
+    if a.body_meta[upd]["code_len"] != 333:
+        raise RuntimeError(f"Game.update was modified ({a.body_meta[upd]['code_len']}), lobby will break")
+    pre = find_game_preupdate(a)
+    if a.body_meta[pre]["code_len"] < 400:
+        raise RuntimeError("preUpdate body too small")
     return a
 
 
@@ -677,19 +695,11 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         a.pushbyte(code)
         a.callproperty(keyDown, 1)
         a.convert_b()
-        a.setlocal(L_DOWN)
-        a.getlocal(L_DOWN)
-        a.convert_b()
-        a.dup()
-        a.iffalse(skip_lab + "_e")
-        a.pop()
+        a.iffalse(skip_lab)
         a.getlocal(L_MENU)
         a.getproperty(was_prop)
         a.convert_b()
-        a.not_()
-        a.label(skip_lab + "_e")
-        a.convert_b()
-        a.iffalse(skip_lab)
+        a.iftrue(skip_lab)
         a.jump_to(hit_lab)
         a.label(skip_lab)
 
@@ -755,16 +765,11 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
 
     a.getlocal(L_DOWN)
     a.convert_b()
-    a.dup()
-    a.iffalse("no_just")
-    a.pop()
+    a.iffalse("no_click")
     a.getlocal(L_MENU)
     a.getproperty(p_md)
     a.convert_b()
-    a.not_()
-    a.label("no_just")
-    a.convert_b()
-    a.iffalse("no_click")
+    a.iftrue("no_click")
 
     hit(a, L_MX, L_MY, 0, 0, W, HEAD_H, "not_head")
     a.getlocal(L_MENU)
@@ -945,9 +950,9 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.setproperty(p_md)
 
     a.label("do_orig")
-    orig = orig_code[2:] if orig_code[:2] == bytes((0xD0, 0x30)) else orig_code
+    a.returnvoid()
     print(f"    asm stack_max={a.max_used} code={len(a.code)}")
-    return a.finish() + orig
+    return a.finish()
 
 
 def patch_one(data: bytes, experimental: bool) -> bytes:
@@ -967,7 +972,8 @@ def patch_one(data: bytes, experimental: bool) -> bytes:
     orig_abc = Abc(abc_bytes)
     ninst = len(orig_abc.instances)
     orig_s, orig_ns, orig_mn = len(orig_abc.strings), len(orig_abc.namespaces), len(orig_abc.multinames)
-    mid = find_game_update(orig_abc)
+    mid = find_game_preupdate(orig_abc)
+    print(f"    patching Game.preUpdate method={mid} orig_len={len(orig_abc.bodies[mid])}")
     new_code = build_code(orig_abc, orig_abc.bodies[mid], experimental)
     new_abc = apply_body_patch(
         abc_bytes, orig_abc, orig_s, orig_ns, orig_mn, mid, new_code, max_stack=16, local_count=NLOCAL
