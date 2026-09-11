@@ -35,7 +35,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 4
+PATCH = 5
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -279,38 +279,24 @@ def find_preloader_showerror(abc: Abc):
 
 
 def build_show_error(abc: Abc) -> bytes:
-    """Replace Preloader.showError so the real exception text is visible.
+    """Preloader.showError: print String(e) using the SAME multinames as the original.
 
-    Original does Error(e).errorID — calling the Error class as a function
-    builds a NEW Error with id 0, so the debugger always shows "Error: #0"
-    and swallows VerifyError #1030 / ReferenceError #1065 / etc.
-    We print String(e), which for VerifyError includes the opcode message.
+    Patch4 used getlocal0+getproperty(first 'stage' QName) — that QName is
+    IFlexDisplayObject.stage (#61), not DisplayObject.stage (#299). Result:
+    TypeError #1010 inside showError, which hid the real App() exception.
+    Original bytecode does getlex stage #299. We do the same.
     """
-
-    def n(name):
-        for i, (kind, nsi, namei, nset, extra) in enumerate(abc.multinames, start=1):
-            if kind == 0x07 and namei and abc.str_at(namei) == name:
-                return i
-        return abc.find_name_any(name) or abc.intern_qname("", name)
-
-    TF = abc.find_qname("flash.text", "TextField") or n("TextField")
-    FMT = abc.find_qname("flash.text", "TextFormat") or n("TextFormat")
-    SPR = abc.find_qname("flash.display", "Sprite") or n("Sprite")
-    graphics, beginFill, endFill = n("graphics"), n("beginFill"), n("endFill")
-    drawRect = n("drawRect")
-    addChild = n("addChild")
-    text_mn = n("text")
-    defaultTextFormat = n("defaultTextFormat")
-    font_mn, size_mn, color_mn = n("font"), n("size"), n("color")
-    align_mn = n("align")
-    width_mn, y_mn = n("width"), n("y")
-    stage_mn = n("stage")
-    stageWidth, stageHeight = n("stageWidth"), n("stageHeight")
-    textHeight = n("textHeight")
-    s_head = abc.intern_string("An error has occurred.\n")
-    s_nl = abc.intern_string("\nError: ")
-    s_font = abc.intern_string("Lucida Console")
-    s_center = abc.intern_string("center")
+    # indices from original frame1 Preloader.showError — do not intern new names
+    TF, FMT, SPR = 204, 338, 55
+    stage = 299
+    size_mn, font_mn, align_mn, color_mn = 339, 340, 305, 341
+    defaultTextFormat, text_mn = 342, 319
+    stageHeight, textHeight, y_mn = 343, 344, 107
+    stageWidth, width_mn = 345, 109
+    graphics, beginFill, drawRect, endFill = 346, 347, 348, 349
+    addChild = 330
+    s_head, s_nl = 354, 355
+    s_font, s_center = 360, 362
 
     L_TXT, L_TF, L_FMT, L_BG = 2, 3, 4, 5
     a = A()
@@ -353,8 +339,7 @@ def build_show_error(abc: Abc) -> bytes:
     a.getlocal(L_TXT)
     a.setproperty(text_mn)
     a.getlocal(L_TF)
-    a.getlocal0()
-    a.getproperty(stage_mn)
+    a.getlex(stage)
     a.getproperty(stageWidth)
     a.setproperty(width_mn)
     a.getlocal(L_TF)
@@ -372,11 +357,9 @@ def build_show_error(abc: Abc) -> bytes:
     a.getproperty(graphics)
     a.pushbyte(0)
     a.pushbyte(0)
-    a.getlocal0()
-    a.getproperty(stage_mn)
+    a.getlex(stage)
     a.getproperty(stageWidth)
-    a.getlocal0()
-    a.getproperty(stage_mn)
+    a.getlex(stage)
     a.getproperty(stageHeight)
     a.callpropvoid(drawRect, 4)
     a.getlocal(L_BG)
@@ -385,8 +368,7 @@ def build_show_error(abc: Abc) -> bytes:
     a.getlocal(L_BG)
     a.getlocal(L_TF)
     a.callpropvoid(addChild, 1)
-    a.getlocal0()
-    a.getproperty(stage_mn)
+    a.getlex(stage)
     a.getlocal(L_BG)
     a.callpropvoid(addChild, 1)
     a.returnvoid()
