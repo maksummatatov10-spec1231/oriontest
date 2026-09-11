@@ -5,6 +5,11 @@ Critical: AVM2 verifies EVERY method of a class when that class loads.
 Patching Game.update killed the lobby (Start button) even though update only
 runs in-game: frame2 script inits Game, verify fails, whole ABC script dies.
 We patch the empty Game.preUpdate instead and leave original update intact.
+
+AVM2 Overview + ASC typecheck dump (Error #1030):
+- pushshort is a 16-bit signed operand; 24-bit RGB must be built with lshift.
+- extra locals are initialized with pushundefined + coerce_a, not pushnull.
+- new QNames are avoided; dynamic props use existing MultinameL + strings.
 """
 from __future__ import annotations
 
@@ -30,11 +35,12 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 2
+PATCH = 3
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
 COL_IN, COL_TXT, COL_RED = 0x0A0E18, 0xF3EAD6, 0x6B2A2A
+COL_HEAD, COL_GIVE = 0x16120A, 0x3A5A2A
 
 L_MENU, L_TMP, L_FMT = 4, 5, 6
 L_MX, L_MY, L_DOWN, L_PL = 7, 8, 9, 10
@@ -70,7 +76,6 @@ class A(Asm):
                 self.stack = self.pending[name]
             self.reachable = True
         elif not self.reachable:
-            # label only reached by jumps that weren't recorded? treat as 0
             self.stack = self.pending.get(name, 0)
             self.reachable = True
         self.stack_at[name] = self.stack
@@ -83,7 +88,6 @@ class A(Asm):
         self.pending[lab] = st
 
     def jump(self, opc, lab):
-        # called after opcode-specific stack adjust
         super().jump(opc, lab)
 
     def jump_to(self, lab):
@@ -150,6 +154,10 @@ class A(Asm):
         super().pushnull()
         self._use(1)
 
+    def pushundefined(self):
+        super().pushundefined()
+        self._use(1)
+
     def pushtrue(self):
         super().pushtrue()
         self._use(1)
@@ -182,9 +190,19 @@ class A(Asm):
         self._use(-2)
         super().setproperty(mn)
 
+    def setproperty_l(self, mn):
+        """MultinameL: (obj, name, val) -> empty."""
+        self._use(-1)
+        self.setproperty(mn)
+
     def callproperty(self, mn, argc):
         self._use(-argc)  # obj+args -> result
         super().callproperty(mn, argc)
+
+    def callproperty_l(self, mn, argc):
+        """MultinameL: (obj, name, args...) -> result."""
+        self._use(-1)
+        self.callproperty(mn, argc)
 
     def callpropvoid(self, mn, argc):
         self._use(-(argc + 1))
@@ -213,6 +231,10 @@ class A(Asm):
     def add(self):
         self._use(-1)
         super().add()
+
+    def lshift(self):
+        self._use(-1)
+        super().lshift()
 
     def divide(self):
         self._use(-1)
@@ -310,11 +332,15 @@ def assert_abc_ok(abc_bytes: bytes, expect_instances: int):
     return a
 
 
-def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
+def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     def q(ns, name):
         return abc.find_qname(ns, name) or abc.intern_qname(ns, name)
 
     def n(name):
+        """Prefer public QName (kind 0x07) — MultinameL has extra stack slots (Error #1030)."""
+        for i, (kind, nsi, namei, nset, extra) in enumerate(abc.multinames, start=1):
+            if kind == 0x07 and namei and abc.str_at(namei) == name:
+                return i
         return abc.find_name_any(name) or abc.intern_qname("", name)
 
     MC = q("flash.display", "MovieClip")
@@ -324,14 +350,11 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     INPUT = n("INPUT")
     graphics, beginFill, endFill = n("graphics"), n("beginFill"), n("endFill")
     drawRect, drawRoundRect = n("drawRect"), n("drawRoundRect")
-    lineStyle = n("lineStyle") if abc.find_name_any("lineStyle") else abc.intern_qname("", "lineStyle")
     addChild = n("addChild")
-    getChildByName = abc.intern_qname("", "getChildByName")
     startDrag, stopDrag = n("startDrag"), n("stopDrag")
     visible, name_mn, text_mn = n("visible"), n("name"), n("text")
     type_mn, border = n("type"), n("border")
-    background = abc.intern_qname("", "background")
-    bgColor, textColor = n("backgroundColor"), abc.intern_qname("", "textColor")
+    bgColor = n("backgroundColor")
     selectable, mouseEnabled = n("selectable"), n("mouseEnabled")
     defaultTextFormat, embedFonts = n("defaultTextFormat"), n("embedFonts")
     font_mn, size_mn, color_mn = n("font"), n("size"), n("color")
@@ -339,7 +362,6 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     mouseX, mouseY = n("mouseX"), n("mouseY")
     restrict, maxChars = n("restrict"), n("maxChars")
     stage_mn = n("stage")
-    frameRate = abc.intern_qname("", "frameRate")
     player_mn, world_mn, inventory_mn = n("player"), n("world"), n("inventory")
     health_mn = n("health")
     max_health_mn = abc.find_qname("orion.worlds.entities", "maxHealth") or n("maxHealth")
@@ -380,20 +402,22 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         ns, _, nm = b.rpartition("::")
         boss_mns.append(abc.find_qname(ns, nm))
 
-    p_god = abc.intern_qname("", "godOn")
-    p_shift = abc.intern_qname("", "shiftWas")
-    p_md = abc.intern_qname("", "mdWas")
-    p_drag = abc.intern_qname("", "dragging")
-    p_fps = abc.intern_qname("", "fpsSet")
-    tfLvl = abc.intern_qname("", "tfLvl")
-    tfHp = abc.intern_qname("", "tfHp")
-    tfSpd = abc.intern_qname("", "tfSpd")
-    tfItem = abc.intern_qname("", "tfItem")
-    tfCnt = abc.intern_qname("", "tfCnt")
-    tfH = abc.intern_qname("", "tfH")
-    tfM = abc.intern_qname("", "tfM")
-    tfFps = abc.intern_qname("", "tfFps")
-    tfGod = abc.intern_qname("", "tfGod")
+    s_godOn = abc.intern_string("godOn")
+    s_shiftWas = abc.intern_string("shiftWas")
+    s_mdWas = abc.intern_string("mdWas")
+    s_dragging = abc.intern_string("dragging")
+    s_fpsSet = abc.intern_string("fpsSet")
+    s_tfLvl = abc.intern_string("tfLvl")
+    s_tfHp = abc.intern_string("tfHp")
+    s_tfSpd = abc.intern_string("tfSpd")
+    s_tfItem = abc.intern_string("tfItem")
+    s_tfCnt = abc.intern_string("tfCnt")
+    s_tfH = abc.intern_string("tfH")
+    s_tfM = abc.intern_string("tfM")
+    s_tfFps = abc.intern_string("tfFps")
+    s_tfGod = abc.intern_string("tfGod")
+    s_getChildByName = abc.intern_string("getChildByName")
+    s_frameRate = abc.intern_string("frameRate")
 
     s_name = abc.intern_string("orionDev")
     s_sans = abc.intern_string("_sans")
@@ -436,15 +460,52 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     OK_X, OK_W, IN_X, IN_W = 340, 84, 118, 210
 
     a = A()
+
+    def push_color(col):
+        """RGB as int without pushshort > 32767 (AVM2 pushshort is 16-bit)."""
+        col &= 0xFFFFFF
+        a.pushshort((col >> 16) & 0xFF)
+        a.pushbyte(16)
+        a.lshift()
+        a.pushshort((col >> 8) & 0xFF)
+        a.pushbyte(8)
+        a.lshift()
+        a.add()
+        a.pushshort(col & 0xFF)
+        a.add()
+
+    def dget(sidx):
+        a.getlocal(L_MENU)
+        a.pushstring(sidx)
+        a.getproperty_l(star_mn)
+
+    def dset_false(sidx):
+        a.getlocal(L_MENU)
+        a.pushstring(sidx)
+        a.pushfalse()
+        a.setproperty_l(star_mn)
+
+    def dset_true(sidx):
+        a.getlocal(L_MENU)
+        a.pushstring(sidx)
+        a.pushtrue()
+        a.setproperty_l(star_mn)
+
+    def dset_local(sidx, loc):
+        a.getlocal(L_MENU)
+        a.pushstring(sidx)
+        a.getlocal(loc)
+        a.setproperty_l(star_mn)
+
     a.getlocal0()
     a.pushscope()
 
-    # Definite assignment: verifier requires this for extra locals (2+ if orig used fewer).
+    # ASC typecheck: extra locals start as undefined + coerce_a.
     for i in range(2, NLOCAL):
-        a.pushnull()
+        a.pushundefined()
+        a.coerce_a()
         a.setlocal(i)
 
-    # stage?
     a.getlocal0()
     a.getproperty(stage_mn)
     a.pushnull()
@@ -452,15 +513,15 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
 
     a.getlocal0()
     a.getproperty(stage_mn)
+    a.pushstring(s_getChildByName)
     a.pushstring(s_name)
-    a.callproperty(getChildByName, 1)
+    a.callproperty_l(star_mn, 1)
     a.coerce_a()
     a.setlocal(L_MENU)
     a.getlocal(L_MENU)
     a.pushnull()
     a.ifne("inited")
 
-    # ---- create menu ----
     a.findpropstrict(MC)
     a.constructprop(MC, 0)
     a.setlocal(L_MENU)
@@ -476,15 +537,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.getlocal(L_MENU)
     a.pushfalse()
     a.setproperty(visible)
-    for prop in (p_god, p_shift, p_md, p_drag, p_fps):
-        a.getlocal(L_MENU)
-        a.pushfalse()
-        a.setproperty(prop)
+    for prop in (s_godOn, s_shiftWas, s_mdWas, s_dragging, s_fpsSet):
+        dset_false(prop)
 
     def fill(color, x, y, w, h, rnd=0):
         a.getlocal(L_MENU)
         a.getproperty(graphics)
-        a.pushshort(color)
+        push_color(color)
         a.callpropvoid(beginFill, 1)
         a.getlocal(L_MENU)
         a.getproperty(graphics)
@@ -502,18 +561,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         a.getproperty(graphics)
         a.callpropvoid(endFill, 0)
 
-    a.getlocal(L_MENU)
-    a.getproperty(graphics)
-    a.pushbyte(2)
-    a.pushshort(COL_GOLD)
-    a.callpropvoid(lineStyle, 2)
     fill(COL_BG, 0, 0, W, H, 12)
-    fill(0x16120A, 0, 0, W, HEAD_H, 0)
+    fill(COL_HEAD, 0, 0, W, HEAD_H, 0)
     fill(COL_BTN, OK_X, Y_LVL, OK_W, 24, 6)
     fill(COL_BTN, OK_X, Y_HP, OK_W, 24, 6)
     fill(COL_RED, 16, Y_GOD, W - 32, 26, 6)
     fill(COL_BTN, OK_X, Y_SPD, OK_W, 24, 6)
-    fill(0x3A5A2A, OK_X, Y_ITEM, OK_W, 24, 6)
+    fill(COL_GIVE, OK_X, Y_ITEM, OK_W, 24, 6)
     fill(COL_BTN, OK_X, Y_HM, OK_W, 24, 6)
     for xx in (16, 122, 228, 334):
         fill(COL_BTN, xx, Y_TIME, 90, 24, 6)
@@ -532,7 +586,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.pushbyte(13)
     a.setproperty(size_mn)
     a.getlocal(L_FMT)
-    a.pushshort(COL_TXT)
+    push_color(COL_TXT)
     a.setproperty(color_mn)
 
     def add_tf(text_idx, x, y, w, h, store=None, inp=False, def_text=None):
@@ -557,9 +611,6 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         a.getlocal(L_TMP)
         a.pushshort(h)
         a.setproperty(height_mn)
-        a.getlocal(L_TMP)
-        a.pushshort(COL_TXT)
-        a.setproperty(textColor)
         if inp:
             a.getlocal(L_TMP)
             a.getlex(TFT)
@@ -569,10 +620,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
             a.pushtrue()
             a.setproperty(border)
             a.getlocal(L_TMP)
-            a.pushtrue()
-            a.setproperty(background)
-            a.getlocal(L_TMP)
-            a.pushshort(COL_IN)
+            push_color(COL_IN)
             a.setproperty(bgColor)
             a.getlocal(L_TMP)
             a.pushtrue()
@@ -603,26 +651,24 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         a.getlocal(L_TMP)
         a.callpropvoid(addChild, 1)
         if store:
-            a.getlocal(L_MENU)
-            a.getlocal(L_TMP)
-            a.setproperty(store)
+            dset_local(store, L_TMP)
 
     add_tf(s_title, 12, 8, 420, 24)
     add_tf(s_hint, 12, H - 22, 420, 18)
     add_tf(s_lvl, 16, Y_LVL, 100, 22)
-    add_tf(s_1, IN_X, Y_LVL, IN_W, 22, store=tfLvl, inp=True, def_text=s_1)
+    add_tf(s_1, IN_X, Y_LVL, IN_W, 22, store=s_tfLvl, inp=True, def_text=s_1)
     add_tf(s_ok, OK_X + 28, Y_LVL + 2, 60, 20)
     add_tf(s_hp, 16, Y_HP, 100, 22)
-    add_tf(s_100, IN_X, Y_HP, IN_W, 22, store=tfHp, inp=True, def_text=s_100)
+    add_tf(s_100, IN_X, Y_HP, IN_W, 22, store=s_tfHp, inp=True, def_text=s_100)
     add_tf(s_ok, OK_X + 28, Y_HP + 2, 60, 20)
-    add_tf(s_god_off, 28, Y_GOD + 3, 380, 22, store=tfGod)
+    add_tf(s_god_off, 28, Y_GOD + 3, 380, 22, store=s_tfGod)
     add_tf(s_spd, 16, Y_SPD, 100, 22)
-    add_tf(s_2, IN_X, Y_SPD, IN_W, 22, store=tfSpd, inp=True, def_text=s_2)
+    add_tf(s_2, IN_X, Y_SPD, IN_W, 22, store=s_tfSpd, inp=True, def_text=s_2)
     add_tf(s_ok, OK_X + 28, Y_SPD + 2, 60, 20)
     add_tf(s_item, 16, Y_ITEM, 100, 22)
-    add_tf(s_1, IN_X, Y_ITEM, 90, 22, store=tfItem, inp=True, def_text=s_1)
+    add_tf(s_1, IN_X, Y_ITEM, 90, 22, store=s_tfItem, inp=True, def_text=s_1)
     add_tf(s_cnt, 214, Y_ITEM, 60, 22)
-    add_tf(s_1, 270, Y_ITEM, 60, 22, store=tfCnt, inp=True, def_text=s_1)
+    add_tf(s_1, 270, Y_ITEM, 60, 22, store=s_tfCnt, inp=True, def_text=s_1)
     add_tf(s_give, OK_X + 10, Y_ITEM + 2, 70, 20)
     add_tf(s_help, 16, Y_HELP, 408, 20)
     add_tf(s_boss, 16, Y_BOSS - 20, 400, 18)
@@ -633,14 +679,14 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     add_tf(s_eve, 244, Y_TIME + 3, 70, 18)
     add_tf(s_night, 348, Y_TIME + 3, 70, 18)
     add_tf(s_h, 16, Y_HM, 24, 22)
-    add_tf(s_12, 40, Y_HM, 70, 22, store=tfH, inp=True, def_text=s_12)
+    add_tf(s_12, 40, Y_HM, 70, 22, store=s_tfH, inp=True, def_text=s_12)
     add_tf(s_min, 120, Y_HM, 40, 22)
-    add_tf(s_0, 160, Y_HM, 70, 22, store=tfM, inp=True, def_text=s_0)
+    add_tf(s_0, 160, Y_HM, 70, 22, store=s_tfM, inp=True, def_text=s_0)
     add_tf(s_ok, OK_X + 28, Y_HM + 2, 60, 20)
     if experimental:
         add_tf(s_set, 16, Y_SET, 400, 20)
         add_tf(s_fpsl, 16, Y_FPS, 100, 22)
-        add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=tfFps, inp=True, def_text=s_120)
+        add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120)
         add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20)
         add_tf(s_gfx, 16, Y_GFX, 408, 20)
 
@@ -653,21 +699,18 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.label("after_init")
 
     if experimental:
-        a.getlocal(L_MENU)
-        a.getproperty(p_fps)
+        dget(s_fpsSet)
         a.convert_b()
         a.iftrue("fps_done")
         a.getlocal0()
         a.getproperty(stage_mn)
+        a.pushstring(s_frameRate)
         a.pushshort(120)
         a.convert_d()
-        a.setproperty(frameRate)
-        a.getlocal(L_MENU)
-        a.pushtrue()
-        a.setproperty(p_fps)
+        a.setproperty_l(star_mn)
+        dset_true(s_fpsSet)
         a.label("fps_done")
 
-    # always assign L_PL
     a.getlocal0()
     a.getproperty(player_mn)
     a.coerce_a()
@@ -676,8 +719,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.getlocal(L_PL)
     a.pushnull()
     a.ifeq("ui_keys")
-    a.getlocal(L_MENU)
-    a.getproperty(p_god)
+    dget(s_godOn)
     a.convert_b()
     a.iffalse("ui_keys")
     a.getlocal(L_PL)
@@ -689,22 +731,21 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.setproperty(health_mn)
     a.label("ui_keys")
 
-    def key_edge(code, was_prop, hit_lab, skip_lab):
+    def key_edge(code, was_s, hit_lab, skip_lab):
         a.getlocal0()
         a.getproperty(input_mn)
         a.pushbyte(code)
         a.callproperty(keyDown, 1)
         a.convert_b()
         a.iffalse(skip_lab)
-        a.getlocal(L_MENU)
-        a.getproperty(was_prop)
+        dget(was_s)
         a.convert_b()
         a.iftrue(skip_lab)
         a.jump_to(hit_lab)
         a.label(skip_lab)
 
-    key_edge(16, p_shift, "do_toggle", "no_sh")
-    key_edge(118, p_shift, "do_toggle", "no_f7")  # F7
+    key_edge(16, s_shiftWas, "do_toggle", "no_sh")
+    key_edge(118, s_shiftWas, "do_toggle", "no_f7")
     a.jump_to("after_toggle")
     a.label("do_toggle")
     a.getlocal(L_MENU)
@@ -719,12 +760,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.callpropvoid(addChild, 1)
     a.label("after_toggle")
     a.getlocal(L_MENU)
+    a.pushstring(s_shiftWas)
     a.getlocal0()
     a.getproperty(input_mn)
     a.pushbyte(16)
     a.callproperty(keyDown, 1)
     a.convert_b()
-    a.setproperty(p_shift)
+    a.setproperty_l(star_mn)
 
     a.getlocal(L_MENU)
     a.getproperty(visible)
@@ -745,9 +787,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.convert_i()
     a.setlocal(L_MY)
 
-    # drag
-    a.getlocal(L_MENU)
-    a.getproperty(p_drag)
+    dget(s_dragging)
     a.convert_b()
     a.iffalse("not_dragging")
     a.getlocal(L_DOWN)
@@ -755,9 +795,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.iftrue("keep_drag")
     a.getlocal(L_MENU)
     a.callpropvoid(stopDrag, 0)
-    a.getlocal(L_MENU)
-    a.pushfalse()
-    a.setproperty(p_drag)
+    dset_false(s_dragging)
     a.label("keep_drag")
     a.jump_to("after_drag")
     a.label("not_dragging")
@@ -766,17 +804,14 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.getlocal(L_DOWN)
     a.convert_b()
     a.iffalse("no_click")
-    a.getlocal(L_MENU)
-    a.getproperty(p_md)
+    dget(s_mdWas)
     a.convert_b()
     a.iftrue("no_click")
 
     hit(a, L_MX, L_MY, 0, 0, W, HEAD_H, "not_head")
     a.getlocal(L_MENU)
     a.callpropvoid(startDrag, 0)
-    a.getlocal(L_MENU)
-    a.pushtrue()
-    a.setproperty(p_drag)
+    dset_true(s_dragging)
     a.jump_to("click_done")
     a.label("not_head")
 
@@ -785,16 +820,15 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         a.pushnull()
         a.ifeq(miss)
 
-    def read_tf(store):
-        a.getlocal(L_MENU)
-        a.getproperty(store)
+    def read_tf(sidx):
+        dget(sidx)
         a.getproperty(text_mn)
         a.convert_i()
         a.setlocal(L_TMP)
 
     hit(a, L_MX, L_MY, OK_X, Y_LVL, OK_W, 24, "c_hp")
     need_player("click_done")
-    read_tf(tfLvl)
+    read_tf(s_tfLvl)
     a.getlocal(L_PL)
     a.getlocal(L_TMP)
     a.setproperty(level_mn)
@@ -803,7 +837,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
 
     hit(a, L_MX, L_MY, OK_X, Y_HP, OK_W, 24, "c_god")
     need_player("click_done")
-    read_tf(tfHp)
+    read_tf(s_tfHp)
     a.getlocal(L_PL)
     a.getlocal(L_TMP)
     a.setproperty(health_mn)
@@ -812,17 +846,15 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
 
     hit(a, L_MX, L_MY, 16, Y_GOD, W - 32, 26, "c_spd")
     a.getlocal(L_MENU)
-    a.getlocal(L_MENU)
-    a.getproperty(p_god)
+    a.pushstring(s_godOn)
+    dget(s_godOn)
     a.convert_b()
     a.not_()
-    a.setproperty(p_god)
-    a.getlocal(L_MENU)
-    a.getproperty(p_god)
+    a.setproperty_l(star_mn)
+    dget(s_godOn)
     a.convert_b()
     a.iffalse("god_off")
-    a.getlocal(L_MENU)
-    a.getproperty(tfGod)
+    dget(s_tfGod)
     a.pushstring(s_god_on)
     a.setproperty(text_mn)
     a.getlocal(L_PL)
@@ -833,8 +865,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.setproperty(immortal_mn)
     a.jump_to("click_done")
     a.label("god_off")
-    a.getlocal(L_MENU)
-    a.getproperty(tfGod)
+    dget(s_tfGod)
     a.pushstring(s_god_off)
     a.setproperty(text_mn)
     a.getlocal(L_PL)
@@ -848,8 +879,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
 
     hit(a, L_MX, L_MY, OK_X, Y_SPD, OK_W, 24, "c_item")
     need_player("click_done")
-    a.getlocal(L_MENU)
-    a.getproperty(tfSpd)
+    dget(s_tfSpd)
     a.getproperty(text_mn)
     a.convert_d()
     a.setlocal(L_TMP)
@@ -862,8 +892,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     hit(a, L_MX, L_MY, OK_X, Y_ITEM, OK_W, 24, "c_boss")
     a.getlex(item_cls)
     a.getproperty(items_mn)
-    a.getlocal(L_MENU)
-    a.getproperty(tfItem)
+    dget(s_tfItem)
     a.getproperty(text_mn)
     a.convert_i()
     a.getproperty_l(star_mn)
@@ -872,7 +901,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
     a.getlocal(L_FMT)
     a.pushnull()
     a.ifeq("click_done")
-    read_tf(tfCnt)
+    read_tf(s_tfCnt)
     a.getlocal0()
     a.getproperty(inventory_mn)
     a.findpropstrict(stack_cls)
@@ -920,9 +949,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
         a.label(miss)
 
     hit(a, L_MX, L_MY, OK_X, Y_HM, OK_W, 24, "c_fps")
-    read_tf(tfH)
-    a.getlocal(L_MENU)
-    a.getproperty(tfM)
+    read_tf(s_tfH)
+    dget(s_tfM)
     a.getproperty(text_mn)
     a.convert_i()
     a.setlocal(L_FMT)
@@ -936,18 +964,17 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> A:
 
     if experimental:
         hit(a, L_MX, L_MY, OK_X, Y_FPS, OK_W, 24, "click_done")
-        read_tf(tfFps)
+        read_tf(s_tfFps)
         a.getlocal0()
         a.getproperty(stage_mn)
+        a.pushstring(s_frameRate)
         a.getlocal(L_TMP)
         a.convert_d()
-        a.setproperty(frameRate)
+        a.setproperty_l(star_mn)
 
     a.label("click_done")
     a.label("no_click")
-    a.getlocal(L_MENU)
-    a.getlocal(L_DOWN)
-    a.setproperty(p_md)
+    dset_local(s_mdWas, L_DOWN)
 
     a.label("do_orig")
     a.returnvoid()

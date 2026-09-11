@@ -574,6 +574,9 @@ class Asm:
     def pushnull(self):
         self.op(0x20)
 
+    def pushundefined(self):
+        self.op(0x21)
+
     def pushtrue(self):
         self.op(0x26)
 
@@ -631,6 +634,9 @@ class Asm:
 
     def add(self):
         self.op(0xA0)
+
+    def lshift(self):
+        self.op(0xA5)
 
     def divide(self):
         self.op(0xA3)
