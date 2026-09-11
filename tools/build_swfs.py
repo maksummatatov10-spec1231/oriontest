@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build orion_menu_patchN.swf / orion_experemental_patchN.swf with in-SWF menu.
+"""Build orion_menu_patchN.swf — one in-SWF menu (cheats + graphics + settings).
 
 GameProcess.fixedUpdate calls game.preUpdate/update/postUpdate.
 SurvivalGame overrides preUpdate — Game.preUpdate is never run in-game.
@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from patch_orion import (
     Abc,
     Asm,
-    BOSSES,
     enc_s24,
     enc_u30,
     find_game_update,
@@ -34,15 +33,19 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 8
+PATCH = 9
 
 W, HEAD_H = 440, 38
+TAB_Y, TAB_H, TAB_W = 38, 28, 146
+PAGE_Y = 66
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
 COL_IN, COL_TXT, COL_RED = 0x0A0E18, 0xF3EAD6, 0x6B2A2A
 COL_HEAD, COL_GIVE = 0x16120A, 0x3A5A2A
+COL_TAB = 0x243044
 
 L_MENU, L_TMP, L_FMT = 4, 5, 6
 L_MX, L_MY, L_DOWN, L_PL = 7, 8, 9, 10
+L_TGT, L_PAGE = 11, 12
 NLOCAL = 14
 
 
@@ -124,6 +127,11 @@ class A(Asm):
         self._use(-2)
         self._jump_stack(lab, self.stack)
         self.jump(0x18, lab)
+
+    def ifgt(self, lab):
+        self._use(-2)
+        self._jump_stack(lab, self.stack)
+        self.jump(0x17, lab)
 
     def getlocal0(self):
         super().getlocal0()
@@ -404,7 +412,7 @@ def assert_abc_ok(abc_bytes: bytes, expect_instances: int):
     return a
 
 
-def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
+def build_code(abc: Abc, orig_code: bytes) -> bytes:
     def q(ns, name):
         return abc.find_qname(ns, name) or abc.intern_qname(ns, name)
 
@@ -452,33 +460,47 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     if not star_mn:
         raise RuntimeError("no MultinameL for Item.ITEMS[id]")
 
-    boss_src = [
-        "orion.worlds.entities.mobs.unique::UGargoyleEntity",
-        "orion.worlds.entities.mobs.unique::UGnomeEntity",
-        "orion.worlds.entities.mobs.unique::UBigSpiderEntity",
-        "orion.worlds.entities.mobs.unique::UTransformerEntity",
-        "orion.worlds.entities.mobs.unique::UfoEntity",
-        "orion.worlds.entities.mobs.unique::UZombieEntity",
-        "orion.worlds.entities.mobs.unique::UfoShadowEntity",
-        "orion.worlds.entities.mobs.unique::UShadowZombieEntity",
-        "orion.worlds.entities.mobs.unique::UBigShadowSpiderEntity",
-        "orion.worlds.entities.mobs.unique::UStoneGolemEntity",
-        "orion.worlds.entities.mobs::DemonEntity",
-        "orion.worlds.entities.mobs::MechanicalGolemEvilEntity",
-        "orion.worlds.entities.mobs::FireRobotEntity",
-        "orion.worlds.entities.mobs::EvilBigSpiderEntity",
-        "orion.worlds.entities.mobs::StoneGolemEvilEntity",
+    def mn_of(path):
+        ns, _, nm = path.rpartition("::")
+        return abc.find_qname(ns, nm)
+
+    # (label, class path or None) — Enhanced left/right pairs, then extras / original / misc
+    U = "orion.worlds.entities.mobs.unique::"
+    M = "orion.worlds.entities.mobs::"
+    enh_pairs = [
+        ("Древний Страж", U + "UGargoyleEntity", None, None),
+        ("Король Москитон", U + "UBigSpiderEntity", "Призрак Москитона", U + "UBigShadowSpiderEntity"),
+        ("Тиран", U + "UZombieEntity", "Призрак Тирана", U + "UShadowZombieEntity"),
+        ("Император Финалиум", U + "UfoEntity", "Призрак Императора", U + "UfoShadowEntity"),
     ]
-    boss_mns = []
-    for b in boss_src:
-        ns, _, nm = b.rpartition("::")
-        boss_mns.append(abc.find_qname(ns, nm))
+    enh_extra = [
+        ("Свергнутый Король", U + "UGnomeEntity"),
+        ("Страж (машина)", U + "UTransformerEntity"),
+    ]
+    orig_bosses = [
+        ("Горгулья", U + "UGargoyleEntity"),
+        ("Огромный паук", U + "UBigSpiderEntity"),
+        ("Зартан", U + "UZombieEntity"),
+        ("Огненный голем", U + "UStoneGolemEntity"),
+    ]
+    misc_mobs = [
+        ("Пламенный Демон", M + "DemonEntity"),
+        ("Злой мех. голем", M + "MechanicalGolemEvilEntity"),
+        ("Пламенный Робот", M + "FireRobotEntity"),
+        ("Злой большой жук", M + "EvilBigSpiderEntity"),
+        ("Злой кам. голем", M + "StoneGolemEvilEntity"),
+    ]
 
     s_godOn = abc.intern_string("godOn")
-    s_shiftWas = abc.intern_string("shiftWas")
+    s_keyWas = abc.intern_string("keyWas")
     s_mdWas = abc.intern_string("mdWas")
     s_dragging = abc.intern_string("dragging")
     s_fpsSet = abc.intern_string("fpsSet")
+    s_page = abc.intern_string("page")
+    s_pg0 = abc.intern_string("pg0")
+    s_pg1 = abc.intern_string("pg1")
+    s_pg2 = abc.intern_string("pg2")
+    s_tabHi = abc.intern_string("tabHi")
     s_tfLvl = abc.intern_string("tfLvl")
     s_tfHp = abc.intern_string("tfHp")
     s_tfSpd = abc.intern_string("tfSpd")
@@ -488,13 +510,17 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_tfM = abc.intern_string("tfM")
     s_tfFps = abc.intern_string("tfFps")
     s_tfGod = abc.intern_string("tfGod")
+    s_tfLight = abc.intern_string("tfLight")
     s_getChildByName = abc.intern_string("getChildByName")
     s_frameRate = abc.intern_string("frameRate")
 
     s_name = abc.intern_string("orionDev")
     s_sans = abc.intern_string("_sans")
-    s_title = abc.intern_string("ORION  ·  Меню разработчика")
-    s_hint = abc.intern_string("Shift / F7 — закрыть   ·   тащи за шапку")
+    s_title = abc.intern_string("ORION  ·  Меню")
+    s_hint = abc.intern_string("Insert / F7 — меню   ·   тащи за шапку")
+    s_tab0 = abc.intern_string("Читы")
+    s_tab1 = abc.intern_string("Графика")
+    s_tab2 = abc.intern_string("Настройки")
     s_lvl = abc.intern_string("Уровень")
     s_hp = abc.intern_string("Здоровье")
     s_god_off = abc.intern_string("Режим бога: ВЫКЛ  (нажми)")
@@ -504,17 +530,24 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_cnt = abc.intern_string("Кол-во")
     s_ok = abc.intern_string("OK")
     s_give = abc.intern_string("Выдать")
-    s_boss = abc.intern_string("Боссы — клик, чтобы заспавнить рядом")
+    s_enh = abc.intern_string("Орион Улучшенный  ·  слева обычный, справа призрак")
+    s_orig = abc.intern_string("Орион (первый)")
+    s_misc = abc.intern_string("Прочие")
     s_h = abc.intern_string("ч")
     s_min = abc.intern_string("мин")
     s_morn = abc.intern_string("Утро")
     s_day = abc.intern_string("День")
     s_eve = abc.intern_string("Вечер")
     s_night = abc.intern_string("Ночь")
-    s_set = abc.intern_string("Настройки Experimental")
+    s_set = abc.intern_string("Experimental")
     s_fpsl = abc.intern_string("FPS")
-    s_gfx = abc.intern_string("Рендер 120 FPS, мир как на 60. Поле FPS — только картинка")
+    s_gfx = abc.intern_string("Картинка 10–240 FPS, мир всегда 60. 120 — плавнее")
     s_help = abc.intern_string("34 кирка  36 жел.кирка  42 зол.меч  43 обс.меч  64 зелье  138 Громон")
+    s_light = abc.intern_string("Свет")
+    s_light0 = abc.intern_string("Как в игре")
+    s_light1 = abc.intern_string("Не сквозь стены")
+    s_light_h = abc.intern_string("Факел — круг в Lighting.addCircleLight, стены не гасят")
+    s_move_h = abc.intern_string("Прыжок/ход: физика 60 Гц. Выше FPS в Настройках — меньше рывков кадра")
     s_1 = abc.intern_string("1")
     s_100 = abc.intern_string("100")
     s_2 = abc.intern_string("2")
@@ -522,14 +555,29 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_0 = abc.intern_string("0")
     s_120 = abc.intern_string("120")
     s_restrict = abc.intern_string("0-9")
-    boss_labels = [abc.intern_string(b["name"][:22]) for b in BOSSES]
+    pair_labs = []
+    for left, _lp, right, _rp in enh_pairs:
+        pair_labs.append(abc.intern_string(left[:22]))
+        pair_labs.append(abc.intern_string(right[:22]) if right else 0)
+    extra_labs = [abc.intern_string(n[:22]) for n, _ in enh_extra]
+    orig_labs = [abc.intern_string(n[:22]) for n, _ in orig_bosses]
+    misc_labs = [abc.intern_string(n[:22]) for n, _ in misc_mobs]
 
-    H = 640 if experimental else 548
-    Y_LVL, Y_HP, Y_GOD, Y_SPD = 48, 80, 112, 144
-    Y_ITEM, Y_HELP, Y_BOSS = 176, 208, 248
-    Y_TIME, Y_HM = 428, 460
-    Y_SET, Y_FPS, Y_GFX = 500, 532, 564
+    H = 660
+    # page-local Y (add PAGE_Y for menu-space hit tests)
+    Y_LVL, Y_HP, Y_GOD, Y_SPD = 8, 40, 72, 104
+    Y_ITEM, Y_HELP = 136, 168
+    Y_ENH, Y_EPAIR = 190, 210
+    Y_EEXTRA = 210 + 4 * 26
+    Y_ORIG, Y_OPAIR = Y_EEXTRA + 34, Y_EEXTRA + 54
+    Y_MISC, Y_MROW = Y_OPAIR + 60, Y_OPAIR + 80
+    Y_TIME, Y_HM = Y_MROW + 60, Y_MROW + 90
+    Y_FPS, Y_GFX = 48, 80
+    Y_LIGHT, Y_L0, Y_LH = 8, 40, 76
+    Y_MOVE = 120
     OK_X, OK_W, IN_X, IN_W = 340, 84, 118, 210
+    BW, BH = 200, 24
+    LX, RX = 16, 224
 
     a = A()
 
@@ -609,15 +657,21 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.getlocal(L_MENU)
     a.pushtrue()
     a.setproperty(visible)
-    for prop in (s_godOn, s_shiftWas, s_mdWas, s_dragging, s_fpsSet):
+    for prop in (s_godOn, s_keyWas, s_mdWas, s_dragging, s_fpsSet):
         dset_false(prop)
+    a.getlocal(L_MENU)
+    a.pushstring(s_page)
+    a.pushbyte(0)
+    a.setproperty_l(star_mn)
 
-    def fill(color, x, y, w, h, rnd=0):
-        a.getlocal(L_MENU)
+    def fill(color, x, y, w, h, rnd=0, tgt=None):
+        if tgt is None:
+            tgt = L_MENU
+        a.getlocal(tgt)
         a.getproperty(graphics)
         push_color(color)
         a.callpropvoid(beginFill, 1)
-        a.getlocal(L_MENU)
+        a.getlocal(tgt)
         a.getproperty(graphics)
         a.pushshort(x)
         a.pushshort(y)
@@ -629,24 +683,90 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             a.callpropvoid(drawRoundRect, 6)
         else:
             a.callpropvoid(drawRect, 4)
-        a.getlocal(L_MENU)
+        a.getlocal(tgt)
         a.getproperty(graphics)
         a.callpropvoid(endFill, 0)
 
+    def make_page(store, shown):
+        a.findpropstrict(MC)
+        a.constructprop(MC, 0)
+        a.setlocal(L_TGT)
+        a.getlocal(L_TGT)
+        a.pushshort(0)
+        a.setproperty(x_mn)
+        a.getlocal(L_TGT)
+        a.pushshort(PAGE_Y)
+        a.setproperty(y_mn)
+        a.getlocal(L_TGT)
+        if shown:
+            a.pushtrue()
+        else:
+            a.pushfalse()
+        a.setproperty(visible)
+        a.getlocal(L_MENU)
+        a.getlocal(L_TGT)
+        a.callpropvoid(addChild, 1)
+        dset_local(store, L_TGT)
+
     fill(COL_BG, 0, 0, W, H, 12)
     fill(COL_HEAD, 0, 0, W, HEAD_H, 0)
-    fill(COL_BTN, OK_X, Y_LVL, OK_W, 24, 6)
-    fill(COL_BTN, OK_X, Y_HP, OK_W, 24, 6)
-    fill(COL_RED, 16, Y_GOD, W - 32, 26, 6)
-    fill(COL_BTN, OK_X, Y_SPD, OK_W, 24, 6)
-    fill(COL_GIVE, OK_X, Y_ITEM, OK_W, 24, 6)
-    fill(COL_BTN, OK_X, Y_HM, OK_W, 24, 6)
+    fill(COL_TAB, 0, TAB_Y, W, TAB_H, 0)
+
+    a.findpropstrict(MC)
+    a.constructprop(MC, 0)
+    a.setlocal(L_TMP)
+    a.getlocal(L_TMP)
+    a.getproperty(graphics)
+    push_color(COL_GOLD)
+    a.callpropvoid(beginFill, 1)
+    a.getlocal(L_TMP)
+    a.getproperty(graphics)
+    a.pushbyte(0)
+    a.pushbyte(0)
+    a.pushshort(TAB_W)
+    a.pushshort(TAB_H)
+    a.callpropvoid(drawRect, 4)
+    a.getlocal(L_TMP)
+    a.getproperty(graphics)
+    a.callpropvoid(endFill, 0)
+    a.getlocal(L_TMP)
+    a.pushbyte(0)
+    a.setproperty(x_mn)
+    a.getlocal(L_TMP)
+    a.pushshort(TAB_Y)
+    a.setproperty(y_mn)
+    a.getlocal(L_MENU)
+    a.getlocal(L_TMP)
+    a.callpropvoid(addChild, 1)
+    dset_local(s_tabHi, L_TMP)
+
+    make_page(s_pg0, True)
+    # L_TGT is page 0 — cheats chrome
+    fill(COL_BTN, OK_X, Y_LVL, OK_W, 24, 6, L_TGT)
+    fill(COL_BTN, OK_X, Y_HP, OK_W, 24, 6, L_TGT)
+    fill(COL_RED, 16, Y_GOD, W - 32, 26, 6, L_TGT)
+    fill(COL_BTN, OK_X, Y_SPD, OK_W, 24, 6, L_TGT)
+    fill(COL_GIVE, OK_X, Y_ITEM, OK_W, 24, 6, L_TGT)
+    fill(COL_BTN, OK_X, Y_HM, OK_W, 24, 6, L_TGT)
     for xx in (16, 122, 228, 334):
-        fill(COL_BTN, xx, Y_TIME, 90, 24, 6)
-    for i in range(15):
-        fill(COL_BTN, 16 + (i % 3) * 140, Y_BOSS + (i // 3) * 28, 132, 24, 5)
-    if experimental:
-        fill(COL_BTN, OK_X, Y_FPS, OK_W, 24, 6)
+        fill(COL_BTN, xx, Y_TIME, 90, 24, 6, L_TGT)
+    for i, (_l, _lp, right, _rp) in enumerate(enh_pairs):
+        fill(COL_BTN, LX, Y_EPAIR + i * 26, BW, BH, 5, L_TGT)
+        if right:
+            fill(COL_BTN, RX, Y_EPAIR + i * 26, BW, BH, 5, L_TGT)
+    for i in range(len(enh_extra)):
+        fill(COL_BTN, LX + i * 208, Y_EEXTRA, BW, BH, 5, L_TGT)
+    for i in range(len(orig_bosses)):
+        fill(COL_BTN, LX + (i % 2) * 208, Y_OPAIR + (i // 2) * 26, BW, BH, 5, L_TGT)
+    for i in range(len(misc_mobs)):
+        fill(COL_BTN, 16 + (i % 3) * 140, Y_MROW + (i // 3) * 26, 132, BH, 5, L_TGT)
+
+    make_page(s_pg1, False)
+    fill(COL_BTN, 16, Y_L0, 200, 28, 6, L_TGT)
+    fill(COL_BTN, 224, Y_L0, 200, 28, 6, L_TGT)
+
+    make_page(s_pg2, False)
+    fill(COL_BTN, OK_X, Y_FPS, OK_W, 24, 6, L_TGT)
 
     a.findpropstrict(FMT)
     a.constructprop(FMT, 0)
@@ -661,7 +781,9 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     push_color(COL_TXT)
     a.setproperty(color_mn)
 
-    def add_tf(text_idx, x, y, w, h, store=None, inp=False, def_text=None):
+    def add_tf(text_idx, x, y, w, h, store=None, inp=False, def_text=None, parent=None):
+        if parent is None:
+            parent = L_MENU
         a.findpropstrict(TF)
         a.constructprop(TF, 0)
         a.setlocal(L_TMP)
@@ -719,48 +841,74 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             a.getlocal(L_TMP)
             a.pushstring(text_idx)
             a.setproperty(text_mn)
-        a.getlocal(L_MENU)
+        a.getlocal(parent)
         a.getlocal(L_TMP)
         a.callpropvoid(addChild, 1)
         if store:
             dset_local(store, L_TMP)
 
-    add_tf(s_title, 12, 8, 420, 24)
-    add_tf(s_hint, 12, H - 22, 420, 18)
-    add_tf(s_lvl, 16, Y_LVL, 100, 22)
-    add_tf(s_1, IN_X, Y_LVL, IN_W, 22, store=s_tfLvl, inp=True, def_text=s_1)
-    add_tf(s_ok, OK_X + 28, Y_LVL + 2, 60, 20)
-    add_tf(s_hp, 16, Y_HP, 100, 22)
-    add_tf(s_100, IN_X, Y_HP, IN_W, 22, store=s_tfHp, inp=True, def_text=s_100)
-    add_tf(s_ok, OK_X + 28, Y_HP + 2, 60, 20)
-    add_tf(s_god_off, 28, Y_GOD + 3, 380, 22, store=s_tfGod)
-    add_tf(s_spd, 16, Y_SPD, 100, 22)
-    add_tf(s_2, IN_X, Y_SPD, IN_W, 22, store=s_tfSpd, inp=True, def_text=s_2)
-    add_tf(s_ok, OK_X + 28, Y_SPD + 2, 60, 20)
-    add_tf(s_item, 16, Y_ITEM, 100, 22)
-    add_tf(s_1, IN_X, Y_ITEM, 90, 22, store=s_tfItem, inp=True, def_text=s_1)
-    add_tf(s_cnt, 214, Y_ITEM, 60, 22)
-    add_tf(s_1, 270, Y_ITEM, 60, 22, store=s_tfCnt, inp=True, def_text=s_1)
-    add_tf(s_give, OK_X + 10, Y_ITEM + 2, 70, 20)
-    add_tf(s_help, 16, Y_HELP, 408, 20)
-    add_tf(s_boss, 16, Y_BOSS - 20, 400, 18)
-    for i, lab in enumerate(boss_labels):
-        add_tf(lab, 20 + (i % 3) * 140, Y_BOSS + (i // 3) * 28 + 3, 124, 18)
-    add_tf(s_morn, 36, Y_TIME + 3, 70, 18)
-    add_tf(s_day, 142, Y_TIME + 3, 70, 18)
-    add_tf(s_eve, 244, Y_TIME + 3, 70, 18)
-    add_tf(s_night, 348, Y_TIME + 3, 70, 18)
-    add_tf(s_h, 16, Y_HM, 24, 22)
-    add_tf(s_12, 40, Y_HM, 70, 22, store=s_tfH, inp=True, def_text=s_12)
-    add_tf(s_min, 120, Y_HM, 40, 22)
-    add_tf(s_0, 160, Y_HM, 70, 22, store=s_tfM, inp=True, def_text=s_0)
-    add_tf(s_ok, OK_X + 28, Y_HM + 2, 60, 20)
-    if experimental:
-        add_tf(s_set, 16, Y_SET, 400, 20)
-        add_tf(s_fpsl, 16, Y_FPS, 100, 22)
-        add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120)
-        add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20)
-        add_tf(s_gfx, 16, Y_GFX, 408, 20)
+    add_tf(s_title, 12, 8, 300, 22)
+    add_tf(s_hint, 12, H - 20, 420, 18)
+    add_tf(s_tab0, 40, TAB_Y + 4, 80, 20)
+    add_tf(s_tab1, 40 + TAB_W, TAB_Y + 4, 90, 20)
+    add_tf(s_tab2, 24 + TAB_W * 2, TAB_Y + 4, 110, 20)
+
+    dget(s_pg0)
+    a.setlocal(L_TGT)
+    add_tf(s_lvl, 16, Y_LVL, 100, 22, parent=L_TGT)
+    add_tf(s_1, IN_X, Y_LVL, IN_W, 22, store=s_tfLvl, inp=True, def_text=s_1, parent=L_TGT)
+    add_tf(s_ok, OK_X + 28, Y_LVL + 2, 60, 20, parent=L_TGT)
+    add_tf(s_hp, 16, Y_HP, 100, 22, parent=L_TGT)
+    add_tf(s_100, IN_X, Y_HP, IN_W, 22, store=s_tfHp, inp=True, def_text=s_100, parent=L_TGT)
+    add_tf(s_ok, OK_X + 28, Y_HP + 2, 60, 20, parent=L_TGT)
+    add_tf(s_god_off, 28, Y_GOD + 3, 380, 22, store=s_tfGod, parent=L_TGT)
+    add_tf(s_spd, 16, Y_SPD, 100, 22, parent=L_TGT)
+    add_tf(s_2, IN_X, Y_SPD, IN_W, 22, store=s_tfSpd, inp=True, def_text=s_2, parent=L_TGT)
+    add_tf(s_ok, OK_X + 28, Y_SPD + 2, 60, 20, parent=L_TGT)
+    add_tf(s_item, 16, Y_ITEM, 100, 22, parent=L_TGT)
+    add_tf(s_1, IN_X, Y_ITEM, 90, 22, store=s_tfItem, inp=True, def_text=s_1, parent=L_TGT)
+    add_tf(s_cnt, 214, Y_ITEM, 60, 22, parent=L_TGT)
+    add_tf(s_1, 270, Y_ITEM, 60, 22, store=s_tfCnt, inp=True, def_text=s_1, parent=L_TGT)
+    add_tf(s_give, OK_X + 10, Y_ITEM + 2, 70, 20, parent=L_TGT)
+    add_tf(s_help, 16, Y_HELP, 408, 20, parent=L_TGT)
+    add_tf(s_enh, 16, Y_ENH, 408, 18, parent=L_TGT)
+    for i, (left, _lp, right, _rp) in enumerate(enh_pairs):
+        add_tf(pair_labs[i * 2], LX + 6, Y_EPAIR + i * 26 + 3, BW - 10, 18, parent=L_TGT)
+        if right:
+            add_tf(pair_labs[i * 2 + 1], RX + 6, Y_EPAIR + i * 26 + 3, BW - 10, 18, parent=L_TGT)
+    for i, lab in enumerate(extra_labs):
+        add_tf(lab, LX + 6 + i * 208, Y_EEXTRA + 3, BW - 10, 18, parent=L_TGT)
+    add_tf(s_orig, 16, Y_ORIG, 400, 18, parent=L_TGT)
+    for i, lab in enumerate(orig_labs):
+        add_tf(lab, LX + 6 + (i % 2) * 208, Y_OPAIR + (i // 2) * 26 + 3, BW - 10, 18, parent=L_TGT)
+    add_tf(s_misc, 16, Y_MISC, 400, 18, parent=L_TGT)
+    for i, lab in enumerate(misc_labs):
+        add_tf(lab, 20 + (i % 3) * 140, Y_MROW + (i // 3) * 26 + 3, 124, 18, parent=L_TGT)
+    add_tf(s_morn, 36, Y_TIME + 3, 70, 18, parent=L_TGT)
+    add_tf(s_day, 142, Y_TIME + 3, 70, 18, parent=L_TGT)
+    add_tf(s_eve, 244, Y_TIME + 3, 70, 18, parent=L_TGT)
+    add_tf(s_night, 348, Y_TIME + 3, 70, 18, parent=L_TGT)
+    add_tf(s_h, 16, Y_HM, 24, 22, parent=L_TGT)
+    add_tf(s_12, 40, Y_HM, 70, 22, store=s_tfH, inp=True, def_text=s_12, parent=L_TGT)
+    add_tf(s_min, 120, Y_HM, 40, 22, parent=L_TGT)
+    add_tf(s_0, 160, Y_HM, 70, 22, store=s_tfM, inp=True, def_text=s_0, parent=L_TGT)
+    add_tf(s_ok, OK_X + 28, Y_HM + 2, 60, 20, parent=L_TGT)
+
+    dget(s_pg1)
+    a.setlocal(L_TGT)
+    add_tf(s_light, 16, Y_LIGHT, 400, 22, parent=L_TGT)
+    add_tf(s_light0, 40, Y_L0 + 4, 160, 20, parent=L_TGT)
+    add_tf(s_light1, 244, Y_L0 + 4, 170, 20, parent=L_TGT)
+    add_tf(s_light_h, 16, Y_LH, 408, 36, store=s_tfLight, parent=L_TGT)
+    add_tf(s_move_h, 16, Y_MOVE, 408, 40, parent=L_TGT)
+
+    dget(s_pg2)
+    a.setlocal(L_TGT)
+    add_tf(s_set, 16, 16, 400, 20, parent=L_TGT)
+    add_tf(s_fpsl, 16, Y_FPS, 100, 22, parent=L_TGT)
+    add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120, parent=L_TGT)
+    add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20, parent=L_TGT)
+    add_tf(s_gfx, 16, Y_GFX, 408, 40, parent=L_TGT)
 
     a.getlocal0()
     a.getproperty(stage_mn)
@@ -770,18 +918,17 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.label("inited")
     a.label("after_init")
 
-    if experimental:
-        dget(s_fpsSet)
-        a.convert_b()
-        a.iftrue("fps_done")
-        a.getlocal0()
-        a.getproperty(stage_mn)
-        a.pushstring(s_frameRate)
-        a.pushshort(120)
-        a.convert_d()
-        a.setproperty_l(star_mn)
-        dset_true(s_fpsSet)
-        a.label("fps_done")
+    dget(s_fpsSet)
+    a.convert_b()
+    a.iftrue("fps_done")
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.pushstring(s_frameRate)
+    a.pushshort(120)
+    a.convert_d()
+    a.setproperty_l(star_mn)
+    dset_true(s_fpsSet)
+    a.label("fps_done")
 
     a.getlocal0()
     a.getproperty(player_mn)
@@ -816,8 +963,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         a.jump_to(hit_lab)
         a.label(skip_lab)
 
-    key_edge(16, s_shiftWas, "do_toggle", "no_sh")
-    key_edge(118, s_shiftWas, "do_toggle", "no_f7")
+    key_edge(45, s_keyWas, "do_toggle", "no_ins")
+    key_edge(118, s_keyWas, "do_toggle", "no_f7")
     a.jump_to("after_toggle")
     a.label("do_toggle")
     a.getlocal(L_MENU)
@@ -832,21 +979,21 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.callpropvoid(addChild, 1)
     a.label("after_toggle")
     a.getlocal(L_MENU)
-    a.pushstring(s_shiftWas)
+    a.pushstring(s_keyWas)
     a.getlocal0()
     a.getproperty(input_mn)
-    a.pushbyte(16)
+    a.pushbyte(45)
     a.callproperty(keyDown, 1)
     a.convert_b()
     a.dup()
-    a.iftrue("shift_held")
+    a.iftrue("key_held")
     a.pop()
     a.getlocal0()
     a.getproperty(input_mn)
     a.pushbyte(118)
     a.callproperty(keyDown, 1)
     a.convert_b()
-    a.label("shift_held")
+    a.label("key_held")
     a.setproperty_l(star_mn)
 
     a.getlocal(L_MENU)
@@ -896,6 +1043,28 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("not_head")
 
+    def apply_page(idx):
+        a.getlocal(L_MENU)
+        a.pushstring(s_page)
+        a.pushbyte(idx)
+        a.setproperty_l(star_mn)
+        dget(s_tabHi)
+        a.pushshort(idx * TAB_W)
+        a.setproperty(x_mn)
+        for j, s in enumerate((s_pg0, s_pg1, s_pg2)):
+            dget(s)
+            if j == idx:
+                a.pushtrue()
+            else:
+                a.pushfalse()
+            a.setproperty(visible)
+
+    for i, miss in enumerate(("ntab1", "ntab2", "ntab3")):
+        hit(a, L_MX, L_MY, i * TAB_W, TAB_Y, TAB_W if i < 2 else W - 2 * TAB_W, TAB_H, miss)
+        apply_page(i)
+        a.jump_to("click_done")
+        a.label(miss)
+
     def need_player(miss):
         a.getlocal(L_PL)
         a.pushnull()
@@ -907,7 +1076,34 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         a.convert_i()
         a.setlocal(L_TMP)
 
-    hit(a, L_MX, L_MY, OK_X, Y_LVL, OK_W, 24, "c_hp")
+    def spawn(mn):
+        need_player("click_done")
+        if mn:
+            a.findpropstrict(mn)
+            a.getlocal(L_PL)
+            a.getproperty(pos_mn)
+            a.getproperty(x_mn)
+            a.pushbyte(80)
+            a.add()
+            a.getlocal(L_PL)
+            a.getproperty(pos_mn)
+            a.getproperty(y_mn)
+            a.constructprop(mn, 2)
+            a.setlocal(L_TMP)
+            a.getlocal0()
+            a.getproperty(world_mn)
+            a.getlocal(L_TMP)
+            a.callpropvoid(add_creature, 1)
+        a.jump_to("click_done")
+
+    dget(s_page)
+    a.convert_i()
+    a.setlocal(L_PAGE)
+    a.getlocal(L_PAGE)
+    a.pushbyte(0)
+    a.ifne("skip_cheats")
+
+    hit(a, L_MX, L_MY, OK_X, PAGE_Y + Y_LVL, OK_W, 24, "c_hp")
     need_player("click_done")
     read_tf(s_tfLvl)
     a.getlocal(L_PL)
@@ -916,7 +1112,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_hp")
 
-    hit(a, L_MX, L_MY, OK_X, Y_HP, OK_W, 24, "c_god")
+    hit(a, L_MX, L_MY, OK_X, PAGE_Y + Y_HP, OK_W, 24, "c_god")
     need_player("click_done")
     read_tf(s_tfHp)
     a.getlocal(L_PL)
@@ -925,7 +1121,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_god")
 
-    hit(a, L_MX, L_MY, 16, Y_GOD, W - 32, 26, "c_spd")
+    hit(a, L_MX, L_MY, 16, PAGE_Y + Y_GOD, W - 32, 26, "c_spd")
     a.getlocal(L_MENU)
     a.pushstring(s_godOn)
     dget(s_godOn)
@@ -970,7 +1166,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_item")
 
-    hit(a, L_MX, L_MY, OK_X, Y_ITEM, OK_W, 24, "c_boss")
+    hit(a, L_MX, L_MY, OK_X, PAGE_Y + Y_ITEM, OK_W, 24, "c_boss")
     a.getlex(item_cls)
     a.getproperty(items_mn)
     dget(s_tfItem)
@@ -995,32 +1191,41 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_boss")
 
-    for i, mn in enumerate(boss_mns):
-        miss = f"nb{i}"
-        hit(a, L_MX, L_MY, 16 + (i % 3) * 140, Y_BOSS + (i // 3) * 28, 132, 24, miss)
-        need_player("click_done")
-        if mn:
-            a.findpropstrict(mn)
-            a.getlocal(L_PL)
-            a.getproperty(pos_mn)
-            a.getproperty(x_mn)
-            a.pushbyte(80)
-            a.add()
-            a.getlocal(L_PL)
-            a.getproperty(pos_mn)
-            a.getproperty(y_mn)
-            a.constructprop(mn, 2)
-            a.setlocal(L_TMP)
-            a.getlocal0()
-            a.getproperty(world_mn)
-            a.getlocal(L_TMP)
-            a.callpropvoid(add_creature, 1)
-        a.jump_to("click_done")
+    bidx = 0
+    for i, (_l, lp, right, rp) in enumerate(enh_pairs):
+        miss = f"nb{bidx}"
+        bidx += 1
+        hit(a, L_MX, L_MY, LX, PAGE_Y + Y_EPAIR + i * 26, BW, BH, miss)
+        spawn(mn_of(lp))
+        a.label(miss)
+        if right:
+            miss = f"nb{bidx}"
+            bidx += 1
+            hit(a, L_MX, L_MY, RX, PAGE_Y + Y_EPAIR + i * 26, BW, BH, miss)
+            spawn(mn_of(rp))
+            a.label(miss)
+    for i, (_n, p) in enumerate(enh_extra):
+        miss = f"nb{bidx}"
+        bidx += 1
+        hit(a, L_MX, L_MY, LX + i * 208, PAGE_Y + Y_EEXTRA, BW, BH, miss)
+        spawn(mn_of(p))
+        a.label(miss)
+    for i, (_n, p) in enumerate(orig_bosses):
+        miss = f"nb{bidx}"
+        bidx += 1
+        hit(a, L_MX, L_MY, LX + (i % 2) * 208, PAGE_Y + Y_OPAIR + (i // 2) * 26, BW, BH, miss)
+        spawn(mn_of(p))
+        a.label(miss)
+    for i, (_n, p) in enumerate(misc_mobs):
+        miss = f"nb{bidx}"
+        bidx += 1
+        hit(a, L_MX, L_MY, 16 + (i % 3) * 140, PAGE_Y + Y_MROW + (i // 3) * 26, 132, BH, miss)
+        spawn(mn_of(p))
         a.label(miss)
 
     for i, (xx, hh, mm) in enumerate(((16, 6, 0), (122, 12, 0), (228, 20, 0), (334, 0, 0))):
         miss = f"nt{i}"
-        hit(a, L_MX, L_MY, xx, Y_TIME, 90, 24, miss)
+        hit(a, L_MX, L_MY, xx, PAGE_Y + Y_TIME, 90, 24, miss)
         a.getlocal0()
         a.getproperty(world_mn)
         a.pushbyte(hh)
@@ -1029,7 +1234,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         a.jump_to("click_done")
         a.label(miss)
 
-    hit(a, L_MX, L_MY, OK_X, Y_HM, OK_W, 24, "c_fps")
+    hit(a, L_MX, L_MY, OK_X, PAGE_Y + Y_HM, OK_W, 24, "c_fps")
     read_tf(s_tfH)
     dget(s_tfM)
     a.getproperty(text_mn)
@@ -1042,16 +1247,51 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.callpropvoid(set_time, 2)
     a.jump_to("click_done")
     a.label("c_fps")
+    a.jump_to("click_done")
 
-    if experimental:
-        hit(a, L_MX, L_MY, OK_X, Y_FPS, OK_W, 24, "click_done")
-        read_tf(s_tfFps)
-        a.getlocal0()
-        a.getproperty(stage_mn)
-        a.pushstring(s_frameRate)
-        a.getlocal(L_TMP)
-        a.convert_d()
-        a.setproperty_l(star_mn)
+    a.label("skip_cheats")
+    a.getlocal(L_PAGE)
+    a.pushbyte(1)
+    a.ifne("skip_gfx")
+    hit(a, L_MX, L_MY, 16, PAGE_Y + Y_L0, 200, 28, "lg1")
+    dget(s_tfLight)
+    a.pushstring(s_light_h)
+    a.setproperty(text_mn)
+    a.jump_to("click_done")
+    a.label("lg1")
+    hit(a, L_MX, L_MY, 224, PAGE_Y + Y_L0, 200, 28, "click_done")
+    dget(s_tfLight)
+    a.pushstring(s_light1)
+    a.setproperty(text_mn)
+    a.jump_to("click_done")
+
+    a.label("skip_gfx")
+    a.getlocal(L_PAGE)
+    a.pushbyte(2)
+    a.ifne("click_done")
+    hit(a, L_MX, L_MY, OK_X, PAGE_Y + Y_FPS, OK_W, 24, "click_done")
+    read_tf(s_tfFps)
+    a.getlocal(L_TMP)
+    a.pushbyte(10)
+    a.iflt("fps_lo")
+    a.getlocal(L_TMP)
+    a.pushshort(240)
+    a.ifgt("fps_hi")
+    a.jump_to("fps_ok")
+    a.label("fps_lo")
+    a.pushbyte(10)
+    a.setlocal(L_TMP)
+    a.jump_to("fps_ok")
+    a.label("fps_hi")
+    a.pushshort(240)
+    a.setlocal(L_TMP)
+    a.label("fps_ok")
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.pushstring(s_frameRate)
+    a.getlocal(L_TMP)
+    a.convert_d()
+    a.setproperty_l(star_mn)
 
     a.label("click_done")
     a.label("no_click")
@@ -1073,7 +1313,7 @@ def _abc_from_payload(payload: bytes):
     return flags, name, payload[z + 1 :]
 
 
-def patch_one(data: bytes, experimental: bool) -> bytes:
+def patch_one(data: bytes) -> bytes:
     header_end = parse_rect(data, 8) + 4
     header = data[:header_end]
     tags = []
@@ -1109,32 +1349,27 @@ def patch_one(data: bytes, experimental: bool) -> bytes:
     orig_s, orig_ns, orig_mn = len(orig_abc.strings), len(orig_abc.namespaces), len(orig_abc.multinames)
     mid = find_game_preupdate(orig_abc)
     print(f"    patching SurvivalGame.preUpdate method={mid} orig_len={len(orig_abc.bodies[mid])}")
-    new_code = build_code(orig_abc, orig_abc.bodies[mid], experimental)
+    new_code = build_code(orig_abc, orig_abc.bodies[mid])
     new_abc = apply_body_patch(
         abc_bytes, orig_abc, orig_s, orig_ns, orig_mn, mid, new_code, max_stack=16, local_count=NLOCAL
     )
-    if experimental:
-        new_abc = patch_core_timestep(new_abc)
+    new_abc = patch_core_timestep(new_abc)
     print("    verifying patched ABC…")
     assert_abc_ok(new_abc, ninst)
     tags[f2] = (82, struct.pack("<I", flags) + name.encode() + b"\x00" + new_abc, True)
 
     out = rebuild_swf(header, tags)
-    if experimental:
-        out = patch_fps_header(out, 120)
+    out = patch_fps_header(out, 120)
     return out
 
 
 def main():
     print("load", SRC)
     base = load_swf(SRC)
-    menu = patch_one(base, False)
+    menu = patch_one(base)
     p1 = ROOT / f"orion_menu_patch{PATCH}.swf"
     write_swf(p1, menu, compressed=True)
-    exp = patch_one(base, True)
-    p2 = ROOT / f"orion_experemental_patch{PATCH}.swf"
-    write_swf(p2, exp, compressed=True)
-    print("ok", p1.name, p2.name)
+    print("ok", p1.name)
 
 
 if __name__ == "__main__":
