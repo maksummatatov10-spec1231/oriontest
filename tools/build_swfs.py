@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Build orion_menu_patchN.swf / orion_experemental_patchN.swf with in-SWF menu.
 
-Critical: AVM2 verifies EVERY method of a class when that class loads.
-Patching Game.update killed the lobby (Start button) even though update only
-runs in-game: frame2 script inits Game, verify fails, whole ABC script dies.
-We patch the empty Game.preUpdate instead and leave original update intact.
+GameProcess.fixedUpdate calls game.preUpdate/update/postUpdate.
+SurvivalGame overrides preUpdate — Game.preUpdate is never run in-game.
+Patch SurvivalGame.preUpdate (keep original tail) and leave Game.update intact.
 
 AVM2 Overview + ASC typecheck dump (Error #1030):
 - pushshort is a 16-bit signed operand; 24-bit RGB must be built with lshift.
@@ -35,7 +34,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 6
+PATCH = 7
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -261,12 +260,13 @@ class A(Asm):
 
 
 def find_game_preupdate(abc: Abc):
+    """SurvivalGame.preUpdate is the method GameProcess actually calls."""
     for inst in abc.instances:
-        if inst["name"] == "orion::Game":
+        if inst["name"] == "orion.games::SurvivalGame":
             for t in inst["traits"]:
                 if t.get("slot") == "method" and t["mn"].split("::")[-1] == "preUpdate":
                     return t["method"]
-    raise SystemExit("orion::Game.preUpdate not found")
+    raise SystemExit("orion.games::SurvivalGame.preUpdate not found")
 
 
 def find_preloader_showerror(abc: Abc):
@@ -293,104 +293,6 @@ def build_show_error(abc: Abc) -> bytes:
     code[63:74] = bytes.fromhex("d170") + b"\x02" * 9
     print(f"    showError surgical String(e) len={len(code)}")
     return bytes(code)
-
-
-def _dead_removed_showerror_rewrite():
-    """DEAD Preloader.showError: print String(e) using the SAME multinames as the original.
-
-    Patch4 used getlocal0+getproperty(first 'stage' QName) — that QName is
-    IFlexDisplayObject.stage (#61), not DisplayObject.stage (#299). Result:
-    TypeError #1010 inside showError, which hid the real App() exception.
-    Original bytecode does getlex stage #299. We do the same.
-    """
-    # indices from original frame1 Preloader.showError — do not intern new names
-    TF, FMT, SPR = 204, 338, 55
-    stage = 299
-    size_mn, font_mn, align_mn, color_mn = 339, 340, 305, 341
-    defaultTextFormat, text_mn = 342, 319
-    stageHeight, textHeight, y_mn = 343, 344, 107
-    stageWidth, width_mn = 345, 109
-    graphics, beginFill, drawRect, endFill = 346, 347, 348, 349
-    addChild = 330
-    s_head, s_nl = 354, 355
-    s_font, s_center = 360, 362
-
-    L_TXT, L_TF, L_FMT, L_BG = 2, 3, 4, 5
-    a = A()
-    a.getlocal0()
-    a.pushscope()
-    a.pushstring(s_head)
-    a.getlocal(1)
-    a.pushnull()
-    a.ifeq("no_err")
-    a.pushstring(s_nl)
-    a.add()
-    a.getlocal(1)
-    a.convert_s()
-    a.add()
-    a.label("no_err")
-    a.setlocal(L_TXT)
-
-    a.findpropstrict(TF)
-    a.constructprop(TF, 0)
-    a.setlocal(L_TF)
-    a.findpropstrict(FMT)
-    a.constructprop(FMT, 0)
-    a.setlocal(L_FMT)
-    a.getlocal(L_FMT)
-    a.pushbyte(14)
-    a.setproperty(size_mn)
-    a.getlocal(L_FMT)
-    a.pushstring(s_font)
-    a.setproperty(font_mn)
-    a.getlocal(L_FMT)
-    a.pushstring(s_center)
-    a.setproperty(align_mn)
-    a.getlocal(L_FMT)
-    a.pushshort(0x7FFF)
-    a.setproperty(color_mn)
-    a.getlocal(L_TF)
-    a.getlocal(L_FMT)
-    a.setproperty(defaultTextFormat)
-    a.getlocal(L_TF)
-    a.getlocal(L_TXT)
-    a.setproperty(text_mn)
-    a.getlocal(L_TF)
-    a.getlex(stage)
-    a.getproperty(stageWidth)
-    a.setproperty(width_mn)
-    a.getlocal(L_TF)
-    a.pushshort(40)
-    a.setproperty(y_mn)
-
-    a.findpropstrict(SPR)
-    a.constructprop(SPR, 0)
-    a.setlocal(L_BG)
-    a.getlocal(L_BG)
-    a.getproperty(graphics)
-    a.pushbyte(0)
-    a.callpropvoid(beginFill, 1)
-    a.getlocal(L_BG)
-    a.getproperty(graphics)
-    a.pushbyte(0)
-    a.pushbyte(0)
-    a.getlex(stage)
-    a.getproperty(stageWidth)
-    a.getlex(stage)
-    a.getproperty(stageHeight)
-    a.callpropvoid(drawRect, 4)
-    a.getlocal(L_BG)
-    a.getproperty(graphics)
-    a.callpropvoid(endFill, 0)
-    a.getlocal(L_BG)
-    a.getlocal(L_TF)
-    a.callpropvoid(addChild, 1)
-    a.getlex(stage)
-    a.getlocal(L_BG)
-    a.callpropvoid(addChild, 1)
-    a.returnvoid()
-    print(f"    showError stack_max={a.max_used} code={len(a.code)}")
-    return a.finish()
 
 
 def hit(a: A, mx, my, x, y, w, h, miss):
@@ -453,9 +355,16 @@ def assert_abc_ok(abc_bytes: bytes, expect_instances: int):
     upd = find_game_update(a)
     if a.body_meta[upd]["code_len"] != 333:
         raise RuntimeError(f"Game.update was modified ({a.body_meta[upd]['code_len']}), lobby will break")
+    # empty Game.preUpdate must stay empty — SurvivalGame overrides it
+    for inst in a.instances:
+        if inst["name"] == "orion::Game":
+            for t in inst["traits"]:
+                if t.get("slot") == "method" and t["mn"].split("::")[-1] == "preUpdate":
+                    if a.body_meta[t["method"]]["code_len"] != 3:
+                        raise RuntimeError("orion::Game.preUpdate was modified")
     pre = find_game_preupdate(a)
     if a.body_meta[pre]["code_len"] < 400:
-        raise RuntimeError("preUpdate body too small")
+        raise RuntimeError("SurvivalGame.preUpdate body too small")
     return a
 
 
@@ -662,7 +571,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.pushshort(48)
     a.setproperty(y_mn)
     a.getlocal(L_MENU)
-    a.pushfalse()
+    a.pushtrue()
     a.setproperty(visible)
     for prop in (s_godOn, s_shiftWas, s_mdWas, s_dragging, s_fpsSet):
         dset_false(prop)
@@ -893,6 +802,15 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.pushbyte(16)
     a.callproperty(keyDown, 1)
     a.convert_b()
+    a.dup()
+    a.iftrue("shift_held")
+    a.pop()
+    a.getlocal0()
+    a.getproperty(input_mn)
+    a.pushbyte(118)
+    a.callproperty(keyDown, 1)
+    a.convert_b()
+    a.label("shift_held")
     a.setproperty_l(star_mn)
 
     a.getlocal(L_MENU)
@@ -1104,9 +1022,12 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     dset_local(s_mdWas, L_DOWN)
 
     a.label("do_orig")
-    a.returnvoid()
     print(f"    asm stack_max={a.max_used} code={len(a.code)}")
-    return a.finish()
+    prefix = a.finish()
+    orig = orig_code
+    if orig[:2] != bytes((0xD0, 0x30)):
+        raise RuntimeError(f"SurvivalGame.preUpdate head {orig[:2].hex()}")
+    return prefix + orig[2:]
 
 
 def _abc_from_payload(payload: bytes):
@@ -1151,7 +1072,7 @@ def patch_one(data: bytes, experimental: bool) -> bytes:
     ninst = len(orig_abc.instances)
     orig_s, orig_ns, orig_mn = len(orig_abc.strings), len(orig_abc.namespaces), len(orig_abc.multinames)
     mid = find_game_preupdate(orig_abc)
-    print(f"    patching Game.preUpdate method={mid} orig_len={len(orig_abc.bodies[mid])}")
+    print(f"    patching SurvivalGame.preUpdate method={mid} orig_len={len(orig_abc.bodies[mid])}")
     new_code = build_code(orig_abc, orig_abc.bodies[mid], experimental)
     new_abc = apply_body_patch(
         abc_bytes, orig_abc, orig_s, orig_ns, orig_mn, mid, new_code, max_stack=16, local_count=NLOCAL
