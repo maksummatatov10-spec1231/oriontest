@@ -35,7 +35,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 3
+PATCH = 4
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -225,6 +225,9 @@ class A(Asm):
     def convert_b(self):
         super().convert_b()
 
+    def convert_s(self):
+        super().convert_s()
+
     def coerce_a(self):
         super().coerce_a()
 
@@ -264,6 +267,131 @@ def find_game_preupdate(abc: Abc):
                 if t.get("slot") == "method" and t["mn"].split("::")[-1] == "preUpdate":
                     return t["method"]
     raise SystemExit("orion::Game.preUpdate not found")
+
+
+def find_preloader_showerror(abc: Abc):
+    for inst in abc.instances:
+        if inst["name"] == "Preloader":
+            for t in inst["traits"]:
+                if t.get("slot") == "method" and t["mn"].split("::")[-1] == "showError":
+                    return t["method"]
+    raise SystemExit("Preloader.showError not found")
+
+
+def build_show_error(abc: Abc) -> bytes:
+    """Replace Preloader.showError so the real exception text is visible.
+
+    Original does Error(e).errorID — calling the Error class as a function
+    builds a NEW Error with id 0, so the debugger always shows "Error: #0"
+    and swallows VerifyError #1030 / ReferenceError #1065 / etc.
+    We print String(e), which for VerifyError includes the opcode message.
+    """
+
+    def n(name):
+        for i, (kind, nsi, namei, nset, extra) in enumerate(abc.multinames, start=1):
+            if kind == 0x07 and namei and abc.str_at(namei) == name:
+                return i
+        return abc.find_name_any(name) or abc.intern_qname("", name)
+
+    TF = abc.find_qname("flash.text", "TextField") or n("TextField")
+    FMT = abc.find_qname("flash.text", "TextFormat") or n("TextFormat")
+    SPR = abc.find_qname("flash.display", "Sprite") or n("Sprite")
+    graphics, beginFill, endFill = n("graphics"), n("beginFill"), n("endFill")
+    drawRect = n("drawRect")
+    addChild = n("addChild")
+    text_mn = n("text")
+    defaultTextFormat = n("defaultTextFormat")
+    font_mn, size_mn, color_mn = n("font"), n("size"), n("color")
+    align_mn = n("align")
+    width_mn, y_mn = n("width"), n("y")
+    stage_mn = n("stage")
+    stageWidth, stageHeight = n("stageWidth"), n("stageHeight")
+    textHeight = n("textHeight")
+    s_head = abc.intern_string("An error has occurred.\n")
+    s_nl = abc.intern_string("\nError: ")
+    s_font = abc.intern_string("Lucida Console")
+    s_center = abc.intern_string("center")
+
+    L_TXT, L_TF, L_FMT, L_BG = 2, 3, 4, 5
+    a = A()
+    a.getlocal0()
+    a.pushscope()
+    a.pushstring(s_head)
+    a.getlocal(1)
+    a.pushnull()
+    a.ifeq("no_err")
+    a.pushstring(s_nl)
+    a.add()
+    a.getlocal(1)
+    a.convert_s()
+    a.add()
+    a.label("no_err")
+    a.setlocal(L_TXT)
+
+    a.findpropstrict(TF)
+    a.constructprop(TF, 0)
+    a.setlocal(L_TF)
+    a.findpropstrict(FMT)
+    a.constructprop(FMT, 0)
+    a.setlocal(L_FMT)
+    a.getlocal(L_FMT)
+    a.pushbyte(14)
+    a.setproperty(size_mn)
+    a.getlocal(L_FMT)
+    a.pushstring(s_font)
+    a.setproperty(font_mn)
+    a.getlocal(L_FMT)
+    a.pushstring(s_center)
+    a.setproperty(align_mn)
+    a.getlocal(L_FMT)
+    a.pushshort(0x7FFF)
+    a.setproperty(color_mn)
+    a.getlocal(L_TF)
+    a.getlocal(L_FMT)
+    a.setproperty(defaultTextFormat)
+    a.getlocal(L_TF)
+    a.getlocal(L_TXT)
+    a.setproperty(text_mn)
+    a.getlocal(L_TF)
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.getproperty(stageWidth)
+    a.setproperty(width_mn)
+    a.getlocal(L_TF)
+    a.pushshort(40)
+    a.setproperty(y_mn)
+
+    a.findpropstrict(SPR)
+    a.constructprop(SPR, 0)
+    a.setlocal(L_BG)
+    a.getlocal(L_BG)
+    a.getproperty(graphics)
+    a.pushbyte(0)
+    a.callpropvoid(beginFill, 1)
+    a.getlocal(L_BG)
+    a.getproperty(graphics)
+    a.pushbyte(0)
+    a.pushbyte(0)
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.getproperty(stageWidth)
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.getproperty(stageHeight)
+    a.callpropvoid(drawRect, 4)
+    a.getlocal(L_BG)
+    a.getproperty(graphics)
+    a.callpropvoid(endFill, 0)
+    a.getlocal(L_BG)
+    a.getlocal(L_TF)
+    a.callpropvoid(addChild, 1)
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.getlocal(L_BG)
+    a.callpropvoid(addChild, 1)
+    a.returnvoid()
+    print(f"    showError stack_max={a.max_used} code={len(a.code)}")
+    return a.finish()
 
 
 def hit(a: A, mx, my, x, y, w, h, miss):
@@ -982,20 +1110,44 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     return a.finish()
 
 
+def _abc_from_payload(payload: bytes):
+    flags = struct.unpack_from("<I", payload, 0)[0]
+    z = payload.find(b"\x00", 4)
+    name = payload[4:z].decode("utf-8", "replace")
+    return flags, name, payload[z + 1 :]
+
+
 def patch_one(data: bytes, experimental: bool) -> bytes:
     header_end = parse_rect(data, 8) + 4
     header = data[:header_end]
     tags = []
-    abc_index = abc_name = abc_flags = abc_bytes = None
+    f1 = f2 = None
     for start, code, long_len, payload in iter_tags(data):
         if code == 82:
-            flags = struct.unpack_from("<I", payload, 0)[0]
-            z = payload.find(b"\x00", 4)
-            name = payload[4:z].decode("utf-8", "replace")
-            raw = payload[z + 1 :]
-            if name == "frame2" or abc_bytes is None or len(raw) > len(abc_bytes or b""):
-                abc_index, abc_name, abc_flags, abc_bytes = len(tags), name, flags, raw
-        tags.append((code, payload))
+            flags, name, raw = _abc_from_payload(payload)
+            if name == "frame1":
+                f1 = len(tags)
+            elif name == "frame2":
+                f2 = len(tags)
+        tags.append((code, payload, long_len))
+    if f1 is None or f2 is None:
+        raise RuntimeError("frame1/frame2 DoABC missing")
+
+    # frame1: Preloader.showError — reveal the real exception instead of "Error: #0"
+    flags, name, abc_bytes = _abc_from_payload(tags[f1][1])
+    abc = Abc(abc_bytes)
+    orig_s, orig_ns, orig_mn = len(abc.strings), len(abc.namespaces), len(abc.multinames)
+    mid = find_preloader_showerror(abc)
+    print(f"    patching Preloader.showError method={mid} orig_len={len(abc.bodies[mid])}")
+    new_code = build_show_error(abc)
+    new_abc = apply_body_patch(
+        abc_bytes, abc, orig_s, orig_ns, orig_mn, mid, new_code, max_stack=8, local_count=6
+    )
+    Abc(new_abc)  # parse check
+    tags[f1] = (82, struct.pack("<I", flags) + name.encode() + b"\x00" + new_abc, True)
+
+    # frame2: menu in Game.preUpdate
+    flags, name, abc_bytes = _abc_from_payload(tags[f2][1])
     orig_abc = Abc(abc_bytes)
     ninst = len(orig_abc.instances)
     orig_s, orig_ns, orig_mn = len(orig_abc.strings), len(orig_abc.namespaces), len(orig_abc.multinames)
@@ -1007,7 +1159,8 @@ def patch_one(data: bytes, experimental: bool) -> bytes:
     )
     print("    verifying patched ABC…")
     assert_abc_ok(new_abc, ninst)
-    tags[abc_index] = (82, struct.pack("<I", abc_flags) + abc_name.encode() + b"\x00" + new_abc)
+    tags[f2] = (82, struct.pack("<I", flags) + name.encode() + b"\x00" + new_abc, True)
+
     out = rebuild_swf(header, tags)
     if experimental:
         out = patch_fps_header(out, 120)

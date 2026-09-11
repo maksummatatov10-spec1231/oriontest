@@ -99,17 +99,26 @@ def iter_tags(data: bytes):
 
 
 def rebuild_swf(header: bytes, tags):
-    """header is bytes up to (not including) first tag."""
+    """header is bytes up to (not including) first tag.
+
+    Each tag is (code, payload) or (code, payload, force_long).
+    force_long keeps Adobe's RECORDHEADER long form even when length < 63
+    (original Orion has 9 such DefineBits tags).
+    """
     out = bytearray(header)
-    for code, payload in tags:
+    for item in tags:
+        if len(item) == 3:
+            code, payload, force_long = item
+        else:
+            code, payload = item
+            force_long = False
         length = len(payload)
-        if length >= 0x3F:
+        if force_long or length >= 0x3F:
             out.extend(struct.pack("<H", (code << 6) | 0x3F))
             out.extend(struct.pack("<I", length))
         else:
             out.extend(struct.pack("<H", (code << 6) | length))
         out.extend(payload)
-    # file length
     out[4:8] = struct.pack("<I", len(out))
     return bytes(out)
 
@@ -611,6 +620,17 @@ class Asm:
         self.u30(mn)
         self.u30(argc)
 
+    def newfunction(self, mid):
+        self.op(0x40)
+        self.u30(mid)
+
+    def newarray(self, n):
+        self.op(0x56)
+        self.u30(n)
+
+    def istypelate(self):
+        self.op(0xB3)
+
     def findpropstrict(self, mn):
         self.op(0x5D)
         self.u30(mn)
@@ -628,6 +648,9 @@ class Asm:
 
     def convert_b(self):
         self.op(0x76)
+
+    def convert_s(self):
+        self.op(0x70)
 
     def coerce_a(self):
         self.op(0x82)
