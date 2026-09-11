@@ -34,7 +34,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 7
+PATCH = 8
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -269,6 +269,42 @@ def find_game_preupdate(abc: Abc):
     raise SystemExit("orion.games::SurvivalGame.preUpdate not found")
 
 
+def find_core_onenterframe(abc: Abc):
+    for inst in abc.instances:
+        if inst["name"] == "orion::Core":
+            for tr in inst["traits"]:
+                if tr.get("slot") == "method" and tr["mn"].split("::")[-1] == "onEnterFrame":
+                    return tr["method"]
+    raise SystemExit("orion::Core.onEnterFrame not found")
+
+
+def patch_core_timestep(abc_bytes: bytes) -> bytes:
+    """Keep 60 Hz physics when Stage.frameRate is 120.
+
+    Core.onEnterFrame always runs one fixedUpdate per ENTER_FRAME, then more
+    while elapsed >= FRAME_RATE (1000/60 ms). Raising frameRate therefore
+    doubles world speed. Same-length patch:
+    - prevFixed = now (drop ceil snap that fights high FPS)
+    - skip the unconditional first tick; the existing while does 60 Hz
+    """
+    abc = Abc(abc_bytes)
+    mid = find_core_onenterframe(abc)
+    code = bytearray(abc.bodies[mid])
+    snap = bytes.fromhex("d0609c61d2609f3ea3469d6101609f3ea268d103")
+    first = bytes.fromhex("d3609f3ea173d7d0609f3e4fe30301")
+    if code[33:53] != snap:
+        raise RuntimeError(f"onEnterFrame snap {code[33:53].hex()}")
+    if code[66:81] != first:
+        raise RuntimeError(f"onEnterFrame first tick {code[66:81].hex()}")
+    code[33:53] = bytes.fromhex("d0d268d103") + b"\x02" * 15
+    code[66:81] = b"\x02" * 15
+    meta = abc.body_meta[mid]
+    out = bytearray(abc_bytes)
+    out[meta["code_off"] : meta["code_off"] + len(code)] = code
+    print(f"    Core.onEnterFrame 60Hz physics (len={len(code)})")
+    return bytes(out)
+
+
 def find_preloader_showerror(abc: Abc):
     for inst in abc.instances:
         if inst["name"] == "Preloader":
@@ -477,7 +513,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_night = abc.intern_string("Ночь")
     s_set = abc.intern_string("Настройки Experimental")
     s_fpsl = abc.intern_string("FPS")
-    s_gfx = abc.intern_string("Графика: тени / свет / частицы — скоро")
+    s_gfx = abc.intern_string("Рендер 120 FPS, мир как на 60. Поле FPS — только картинка")
     s_help = abc.intern_string("34 кирка  36 жел.кирка  42 зол.меч  43 обс.меч  64 зелье  138 Громон")
     s_1 = abc.intern_string("1")
     s_100 = abc.intern_string("100")
@@ -1077,6 +1113,8 @@ def patch_one(data: bytes, experimental: bool) -> bytes:
     new_abc = apply_body_patch(
         abc_bytes, orig_abc, orig_s, orig_ns, orig_mn, mid, new_code, max_stack=16, local_count=NLOCAL
     )
+    if experimental:
+        new_abc = patch_core_timestep(new_abc)
     print("    verifying patched ABC…")
     assert_abc_ok(new_abc, ninst)
     tags[f2] = (82, struct.pack("<I", flags) + name.encode() + b"\x00" + new_abc, True)
