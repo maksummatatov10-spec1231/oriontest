@@ -35,7 +35,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 5
+PATCH = 6
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -279,7 +279,24 @@ def find_preloader_showerror(abc: Abc):
 
 
 def build_show_error(abc: Abc) -> bytes:
-    """Preloader.showError: print String(e) using the SAME multinames as the original.
+    """Keep original showError UI. Replace Error(e).errorID with String(e).
+
+    Original bytes at 63..73: findpropstrict Error; getlocal1; callproperty Error,1;
+    getproperty errorID — that constructs a NEW Error with id 0.
+    Same-length patch: getlocal1, convert_s, nops. Jumps stay valid.
+    """
+    mid = find_preloader_showerror(abc)
+    code = bytearray(abc.bodies[mid])
+    old = bytes.fromhex("5dcb02d146cb020166d102")
+    if code[63:74] != old:
+        raise RuntimeError(f"showError@63 unexpected {code[63:74].hex()}")
+    code[63:74] = bytes.fromhex("d170") + b"\x02" * 9
+    print(f"    showError surgical String(e) len={len(code)}")
+    return bytes(code)
+
+
+def _dead_removed_showerror_rewrite():
+    """DEAD Preloader.showError: print String(e) using the SAME multinames as the original.
 
     Patch4 used getlocal0+getproperty(first 'stage' QName) — that QName is
     IFlexDisplayObject.stage (#61), not DisplayObject.stage (#299). Result:
