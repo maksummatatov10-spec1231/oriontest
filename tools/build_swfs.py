@@ -507,6 +507,11 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_bossMode = abc.intern_string("bossMode")
     s_bEnh = abc.intern_string("Orion Enhanced")
     s_bOrig = abc.intern_string("Оригинал")
+    s_items_h = abc.intern_string("Предметы")
+    s_itemPage = abc.intern_string("itemPage")
+    s_itemFill = abc.intern_string("itemFill")
+    s_prev = abc.intern_string("<")
+    s_next = abc.intern_string(">")
     s_exp = abc.intern_string("Экспериментальные")
     s_gfxt = abc.intern_string("Настройки графики")
     s_light = abc.intern_string("Свет")
@@ -525,14 +530,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     boss_labels = [abc.intern_string(b["name"][:22]) for b in BOSSES]
 
     H = 640
-    TAB_H, TAB_W = 28, 88
-    TAB_Y = H - 34
-    DY = 30
-    Y_LVL, Y_HP, Y_GOD, Y_SPD = 48 + DY, 80 + DY, 112 + DY, 144 + DY
-    Y_ITEM, Y_HELP, Y_BOSS = 176 + DY, 208 + DY, 248 + DY
-    Y_TIME, Y_HM = 428 + DY, 460 + DY
-    Y_SET, Y_FPS, Y_GFX = 500 + DY, 532 + DY, 564 + DY
-    OK_X, OK_W, IN_X, IN_W = 340, 84, 118, 210
+    TAB_Y, TAB_H, TAB_W = 0, 30, 88
+    HEAD_Y, HEAD_H = 30, 28
+    Y_LVL, Y_HP, Y_GOD, Y_SPD = 70, 100, 130, 164
+    Y_ITEM, Y_HELP, Y_BOSS = 196, 226, 302
+    Y_TIME, Y_HM = 514, 546
+    Y_SET, Y_FPS, Y_GFX = 600, 604, 626
+    OK_X, OK_W, IN_X, IN_W = 308, 116, 120, 180
 
     a = A()
 
@@ -638,7 +642,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         a.callpropvoid(endFill, 0)
 
     fill(COL_BG, 0, 0, W, H, 12)
-    fill(COL_HEAD, 0, 0, W, HEAD_H, 0)
+    fill(COL_HEAD, 0, HEAD_Y, W, HEAD_H, 0)
     fill(COL_BTN, OK_X, Y_LVL, OK_W, 24, 6)
     fill(COL_BTN, OK_X, Y_HP, OK_W, 24, 6)
     fill(COL_RED, 16, Y_GOD, W - 32, 26, 6)
@@ -649,8 +653,6 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         fill(COL_BTN, xx, Y_TIME, 90, 24, 6)
     fill(COL_BTN, 16, Y_BOSS - 54, 200, 24, 6)
     fill(COL_BTN, 228, Y_BOSS - 54, 200, 24, 6)
-    if experimental:
-        fill(COL_BTN, OK_X, Y_FPS, OK_W, 24, 6)
 
     a.findpropstrict(FMT)
     a.constructprop(FMT, 0)
@@ -730,8 +732,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         if store:
             dset_local(store, L_TMP)
 
-    add_tf(s_title, 12, 8, 420, 24)
-    add_tf(s_hint, 232, 10, 200, 18)
+    add_tf(s_title, 12, 34, 256, 20)
+    add_tf(s_hint, 274, 34, 162, 20)
     add_tf(s_lvl, 16, Y_LVL, 100, 22)
     add_tf(s_1, IN_X, Y_LVL, IN_W, 22, store=s_tfLvl, inp=True, def_text=s_1)
     add_tf(s_ok, OK_X + 28, Y_LVL + 2, 60, 20)
@@ -760,12 +762,6 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     add_tf(s_min, 120, Y_HM, 40, 22)
     add_tf(s_0, 160, Y_HM, 70, 22, store=s_tfM, inp=True, def_text=s_0)
     add_tf(s_ok, OK_X + 28, Y_HM + 2, 60, 20)
-    if experimental:
-        add_tf(s_set, 16, Y_SET, 400, 20)
-        add_tf(s_fpsl, 16, Y_FPS, 100, 22)
-        add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120)
-        add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20)
-        add_tf(s_gfx, 16, Y_GFX, 408, 20)
 
     # ================= TAB BAR =================
     fill(COL_HEAD, 0, TAB_Y, W, TAB_H, 0)
@@ -819,6 +815,18 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         dget(sidx)
         a.coerce_a()
         a.setlocal(L_PG)
+
+    def set_page_vis(active):
+        for _idx, _sidx in enumerate((s_pg1, s_pg2, s_pg3, s_pg4), start=1):
+            dget(_sidx)
+            a.coerce_a()
+            a.setlocal(L_TMP)
+            a.getlocal(L_TMP)
+            if _idx == active:
+                a.pushtrue()
+            else:
+                a.pushfalse()
+            a.setproperty(visible)
 
     def boss_mode_vis(mode):
         for _s, _m in ((s_bsEnh, 0), (s_bsOrig, 1)):
@@ -905,16 +913,115 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         fill(COL_BTN, _x, _y, _w, 24, 5, loc=L_PG)
         add_tf(abc.intern_string(_lab), _x + 4, _y + 3, _w - 8, 18, loc=L_PG)
 
-    # ---- pg1 Предметы ----
+    # ---- pg1 Предметы: сетка спрайтов ----
+    BITMAP = q("flash.display", "Bitmap")
+    bitmapData_mn = n("bitmapData")
+    smoothing_mn = n("smoothing")
+    items_cls = q("assets", "Images")
+    ITEM_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+                41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+                60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78,
+                79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97,
+                98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 114, 115, 116, 117, 118, 119,
+                120, 121, 122, 130, 131, 132, 133, 134, 135, 138, 139, 140, 141, 142, 143, 144,
+                145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160,
+                161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176,
+                177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192,
+                193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208,
+                209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224,
+                225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235]
+    IC_PER = 40
+    IC_COLS, IC_CELL = 10, 40
+    IC_X0, IC_Y0 = 20, 96
+    IC_W, IC_H = 36, 36
+    ic_pages = [ITEM_IDS[i:i + IC_PER] for i in range(0, len(ITEM_IDS), IC_PER)]
+    IC_NPAGES = len(ic_pages)
+
+    def ic_xy(i):
+        return (IC_X0 + (i % IC_COLS) * IC_CELL, IC_Y0 + (i // IC_COLS) * IC_CELL)
+
+    ICS = [abc.intern_string(f"ic{i}") for i in range(IC_PER)]
+
     mkpage(s_pg1)
     loadpage(s_pg1)
-    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
-    add_tf(s_note_items, 16, 62, 408, 22, loc=L_PG)
+    fill(COL_BG, 0, HEAD_Y, W, H - HEAD_Y, 0, loc=L_PG)
+    add_tf(s_items_h, 16, 60, 200, 20, loc=L_PG)
+    add_tf(s_itemPage, 250, 60, 60, 20, loc=L_PG)
+    fill(COL_BTN, 320, 58, 40, 24, 5, loc=L_PG)
+    add_tf(s_prev, 330, 60, 30, 20, loc=L_PG)
+    fill(COL_BTN, 372, 58, 40, 24, 5, loc=L_PG)
+    add_tf(s_next, 382, 60, 30, 20, loc=L_PG)
+
+    _uid = [0]
+
+    def mk_slot(i):
+        x, y = ic_xy(i)
+        a.findpropstrict(BITMAP)
+        a.constructprop(BITMAP, 0)
+        a.setlocal(L_TMP)
+        a.getlocal(L_TMP)
+        a.pushstring(ICS[i])
+        a.setproperty(name_mn)
+        a.getlocal(L_TMP)
+        a.pushtrue()
+        a.setproperty(smoothing_mn)
+        a.getlocal(L_TMP)
+        a.pushshort(x)
+        a.setproperty(x_mn)
+        a.getlocal(L_TMP)
+        a.pushshort(y)
+        a.setproperty(y_mn)
+        a.getlocal(L_PG)
+        a.getlocal(L_TMP)
+        a.callpropvoid(addChild, 1)
+        dset_local(ICS[i], L_TMP)
+
+    ICID = [abc.intern_string(f"icid{i}") for i in range(IC_PER)]
+
+    def fill_slot(i, idv):
+        _uid[0] += 1
+        u = _uid[0]
+        dget(ICS[i])
+        a.coerce_a()
+        a.setlocal(11)
+        a.getlex(items_cls)
+        a.getproperty(items_mn)
+        a.pushshort(idv)
+        a.getproperty_l(star_mn)
+        a.coerce_a()
+        a.setlocal(L_TMP)
+        a.getlocal(L_MENU)
+        a.pushstring(ICID[i])
+        a.pushshort(idv)
+        a.setproperty_l(star_mn)
+        a.getlocal(11)
+        a.getlocal(L_TMP)
+        a.setproperty(bitmapData_mn)
+        a.getlocal(L_TMP)
+        a.pushnull()
+        a.ifeq(f"ih{u}")
+        a.getlocal(11)
+        a.pushshort(IC_W)
+        a.setproperty(width_mn)
+        a.getlocal(11)
+        a.pushshort(IC_H)
+        a.setproperty(height_mn)
+        a.label(f"ih{u}")
+
+    for _i in range(IC_PER):
+        mk_slot(_i)
+    for _i in range(IC_PER):
+        fill_slot(_i, ic_pages[0][_i] if _i < len(ic_pages[0]) else 0)
+    a.getlocal(L_MENU)
+    a.pushstring(s_itemFill)
+    a.pushfalse()
+    a.setproperty_l(star_mn)
 
     # ---- pg2 Боссы ----
     mkpage(s_pg2)
     loadpage(s_pg2)
-    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
+    fill(COL_BG, 0, HEAD_Y, W, H - HEAD_Y, 0, loc=L_PG)
     add_tf(s_qty, 286, 62, 56, 20, loc=L_PG)
     add_tf(s_1, 344, 60, 84, 22, store=s_tfCnt, inp=True, def_text=s_1, loc=L_PG)
     add_tf(s_bh, 16, 90, 408, 20, loc=L_PG)
@@ -938,13 +1045,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     # ---- pg3 Мобы ----
     mkpage(s_pg3)
     loadpage(s_pg3)
-    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
+    fill(COL_BG, 0, HEAD_Y, W, H - HEAD_Y, 0, loc=L_PG)
     add_tf(s_note_mobs, 16, 62, 408, 22, loc=L_PG)
 
     # ---- pg4 Настройки ----
     mkpage(s_pg4)
     loadpage(s_pg4)
-    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
+    fill(COL_BG, 0, HEAD_Y, W, H - HEAD_Y, 0, loc=L_PG)
     add_tf(s_exp, 16, 62, 408, 20, loc=L_PG)
     add_tf(s_fpsl, 16, 92, 90, 22, loc=L_PG)
     add_tf(s_120, 116, 92, 190, 22, store=s_tfFps, inp=True, def_text=s_120, loc=L_PG)
@@ -1085,7 +1192,25 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.convert_b()
     a.iftrue("no_click")
 
-    hit(a, L_MX, L_MY, 0, 0, W, HEAD_H, "not_head")
+    # ============ ВКЛАДКИ обрабатываются ПЕРВЫМИ (панель сверху, y=0..30) ============
+    for _i in range(5):
+        _miss = f"tabm{_i}"
+        hit(a, L_MX, L_MY, 4 + _i * TAB_W, TAB_Y, TAB_W - 8, TAB_H, _miss)
+        a.getlocal(L_MENU)
+        a.pushstring(s_page)
+        a.pushbyte(_i)
+        a.setproperty_l(star_mn)
+        set_page_vis(_i)
+        dget(s_hl)
+        a.coerce_a()
+        a.setlocal(L_TMP)
+        a.getlocal(L_TMP)
+        a.pushshort(4 + _i * TAB_W)
+        a.setproperty(x_mn)
+        a.jump_to("click_done")
+        a.label(_miss)
+
+    hit(a, L_MX, L_MY, 0, HEAD_Y, W, HEAD_H, "not_head")
     a.getlocal(L_MENU)
     a.callpropvoid(startDrag, 0)
     dset_true(s_dragging)
@@ -1283,46 +1408,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_fps")
 
-    if experimental:
-        hit(a, L_MX, L_MY, OK_X, Y_FPS, OK_W, 24, "click_done")
-        read_tf(s_tfFps)
-        a.getlocal0()
-        a.getproperty(stage_mn)
-        a.pushstring(s_frameRate)
-        a.getlocal(L_TMP)
-        a.convert_d()
-        a.setproperty_l(star_mn)
-
     # ================= TAB CLICKS + PAGE CONTENT =================
-    def set_page_vis(active):
-        for _idx, _sidx in enumerate((s_pg1, s_pg2, s_pg3, s_pg4), start=1):
-            dget(_sidx)
-            a.coerce_a()
-            a.setlocal(L_TMP)
-            a.getlocal(L_TMP)
-            if _idx == active:
-                a.pushtrue()
-            else:
-                a.pushfalse()
-            a.setproperty(visible)
-
-    for _i in range(5):
-        _miss = f"tabm{_i}"
-        hit(a, L_MX, L_MY, 4 + _i * TAB_W, TAB_Y, TAB_W - 8, TAB_H, _miss)
-        a.getlocal(L_MENU)
-        a.pushstring(s_page)
-        a.pushbyte(_i)
-        a.setproperty_l(star_mn)
-        set_page_vis(_i)
-        dget(s_hl)
-        a.coerce_a()
-        a.setlocal(L_TMP)
-        a.getlocal(L_TMP)
-        a.pushshort(4 + _i * TAB_W)
-        a.setproperty(x_mn)
-        a.jump_to("click_done")
-        a.label(_miss)
-
     # --- pg2 Боссы: кнопки (только когда открыта вкладка 2) ---
     dget(s_page)
     a.convert_i()
@@ -1418,9 +1504,94 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.setproperty(text_mn)
     a.label("no_set_page")
 
+    # --- pg1 Предметы: кнопки страниц и клики по слотам ---
+    dget(s_page)
+    a.convert_i()
+    a.pushbyte(1)
+    a.ifne("no_items_page")
+    hit(a, L_MX, L_MY, 320, 58, 40, 24, "icnext")
+    dget(s_itemPage)
+    a.convert_i()
+    a.pushbyte(1)
+    a.add()
+    a.setlocal(L_TMP)
+    a.getlocal(L_TMP)
+    a.pushbyte(IC_NPAGES)
+    a.iflt("icp_ok")
+    a.pushbyte(IC_NPAGES - 1)
+    a.setlocal(L_TMP)
+    a.label("icp_ok")
+    dset_local(s_itemPage, L_TMP)
+    dset_true(s_itemFill)
+    a.jump_to("click_done")
+    a.label("icnext")
+    hit(a, L_MX, L_MY, 372, 58, 40, 24, "icdone")
+    dget(s_itemPage)
+    a.convert_i()
+    a.pushbyte(-1)
+    a.add()
+    a.setlocal(L_TMP)
+    a.getlocal(L_TMP)
+    a.pushbyte(0)
+    a.ifge("icm_ok")
+    a.pushbyte(0)
+    a.setlocal(L_TMP)
+    a.label("icm_ok")
+    dset_local(s_itemPage, L_TMP)
+    dset_true(s_itemFill)
+    a.jump_to("click_done")
+    a.label("icdone")
+    for _i in range(IC_PER):
+        _x, _y = ic_xy(_i)
+        _miss = f"icm{_i}"
+        hit(a, L_MX, L_MY, _x, _y, IC_CELL, IC_CELL, _miss)
+        need_player("click_done")
+        dget(ICID[_i])
+        a.convert_i()
+        a.setlocal(L_TMP)
+        a.getlex(item_cls)
+        a.getproperty(items_mn)
+        a.getlocal(L_TMP)
+        a.getproperty_l(star_mn)
+        a.coerce_a()
+        a.setlocal(L_FMT)
+        a.getlocal(L_FMT)
+        a.pushnull()
+        a.ifeq("click_done")
+        a.getlocal0()
+        a.getproperty(inventory_mn)
+        a.findpropstrict(stack_cls)
+        a.getlocal(L_FMT)
+        a.constructprop(stack_cls, 1)
+        a.dup()
+        a.pushbyte(1)
+        a.setproperty(count_mn)
+        a.callpropvoid(add_mn, 1)
+        a.jump_to("click_done")
+        a.label(_miss)
+    a.label("no_items_page")
+
     a.label("click_done")
     a.label("no_click")
     dset_local(s_mdWas, L_DOWN)
+
+    # ================= ПЕРЕРИСОВКА СЕТКИ ПРЕДМЕТОВ =================
+    dget(s_itemFill)
+    a.convert_b()
+    a.iffalse("nofill")
+    for _p in range(IC_NPAGES):
+        dget(s_itemPage)
+        a.convert_i()
+        a.pushbyte(_p)
+        a.ifne(f"nf{_p}")
+        for _i in range(IC_PER):
+            _id = ic_pages[_p][_i] if _i < len(ic_pages[_p]) else 0
+            fill_slot(_i, _id)
+        a.jump_to("filldone")
+        a.label(f"nf{_p}")
+    a.label("filldone")
+    dset_false(s_itemFill)
+    a.label("nofill")
 
     a.label("do_orig")
     print(f"    asm stack_max={a.max_used} code={len(a.code)}")
