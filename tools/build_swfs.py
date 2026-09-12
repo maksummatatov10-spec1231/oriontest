@@ -34,7 +34,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 13
+PATCH = 14
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -43,7 +43,6 @@ COL_HEAD, COL_GIVE = 0x16120A, 0x3A5A2A
 
 L_MENU, L_TMP, L_FMT = 4, 5, 6
 L_MX, L_MY, L_DOWN, L_PL = 7, 8, 9, 10
-L_CNT = 13
 NLOCAL = 14
 
 
@@ -125,20 +124,6 @@ class A(Asm):
         self._use(-2)
         self._jump_stack(lab, self.stack)
         self.jump(0x18, lab)
-
-    def ifle(self, lab):
-        self._use(-2)
-        self._jump_stack(lab, self.stack)
-        self.jump(0x16, lab)
-
-    def ifgt(self, lab):
-        self._use(-2)
-        self._jump_stack(lab, self.stack)
-        self.jump(0x17, lab)
-
-    def decrement(self):
-        """0x93 decrement: pop 1 / push 1 -> net 0."""
-        self.op(0x93)
 
     def getlocal0(self):
         super().getlocal0()
@@ -503,7 +488,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_restrict = abc.intern_string("0-9")
     boss_labels = [abc.intern_string(b["name"][:22]) for b in BOSSES]
 
-    H = 640
+    H = 640 if experimental else 548
     Y_LVL, Y_HP, Y_GOD, Y_SPD = 48, 80, 112, 144
     Y_ITEM, Y_HELP, Y_BOSS = 176, 208, 248
     Y_TIME, Y_HM = 428, 460
@@ -624,7 +609,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         fill(COL_BTN, xx, Y_TIME, 90, 24, 6)
     for i in range(15):
         fill(COL_BTN, 16 + (i % 3) * 140, Y_BOSS + (i // 3) * 28, 132, 24, 5)
-    fill(COL_BTN, OK_X, Y_FPS, OK_W, 24, 6)
+    if experimental:
+        fill(COL_BTN, OK_X, Y_FPS, OK_W, 24, 6)
 
     a.findpropstrict(FMT)
     a.constructprop(FMT, 0)
@@ -733,11 +719,12 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     add_tf(s_min, 120, Y_HM, 40, 22)
     add_tf(s_0, 160, Y_HM, 70, 22, store=s_tfM, inp=True, def_text=s_0)
     add_tf(s_ok, OK_X + 28, Y_HM + 2, 60, 20)
-    add_tf(s_set, 16, Y_SET, 400, 20)
-    add_tf(s_fpsl, 16, Y_FPS, 100, 22)
-    add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120)
-    add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20)
-    add_tf(s_gfx, 16, Y_GFX, 408, 20)
+    if experimental:
+        add_tf(s_set, 16, Y_SET, 400, 20)
+        add_tf(s_fpsl, 16, Y_FPS, 100, 22)
+        add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120)
+        add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20)
+        add_tf(s_gfx, 16, Y_GFX, 408, 20)
 
     a.getlocal0()
     a.getproperty(stage_mn)
@@ -747,17 +734,18 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.label("inited")
     a.label("after_init")
 
-    dget(s_fpsSet)
-    a.convert_b()
-    a.iftrue("fps_done")
-    a.getlocal0()
-    a.getproperty(stage_mn)
-    a.pushstring(s_frameRate)
-    a.pushshort(60)
-    a.convert_d()
-    a.setproperty_l(star_mn)
-    dset_true(s_fpsSet)
-    a.label("fps_done")
+    if experimental:
+        dget(s_fpsSet)
+        a.convert_b()
+        a.iftrue("fps_done")
+        a.getlocal0()
+        a.getproperty(stage_mn)
+        a.pushstring(s_frameRate)
+        a.pushshort(120)
+        a.convert_d()
+        a.setproperty_l(star_mn)
+        dset_true(s_fpsSet)
+        a.label("fps_done")
 
     a.getlocal0()
     a.getproperty(player_mn)
@@ -976,20 +964,6 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         hit(a, L_MX, L_MY, 16 + (i % 3) * 140, Y_BOSS + (i // 3) * 28, 132, 24, miss)
         need_player("click_done")
         if mn:
-            # Кол-во берём из поля «Кол-во» (s_tfCnt), clamp 1..50, спавним N штук.
-            read_tf(s_tfCnt)
-            a.getlocal(L_TMP)
-            a.setlocal(L_CNT)
-            a.getlocal(L_CNT)
-            a.pushbyte(50)
-            a.ifle(f"nb_qok{i}")
-            a.pushbyte(50)
-            a.setlocal(L_CNT)
-            a.label(f"nb_qok{i}")
-            a.getlocal(L_CNT)
-            a.pushbyte(0)
-            a.ifle(f"nb_skip{i}")
-            a.label(f"nb_loop{i}")
             a.findpropstrict(mn)
             a.getlocal(L_PL)
             a.getproperty(pos_mn)
@@ -1005,13 +979,6 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             a.getproperty(world_mn)
             a.getlocal(L_TMP)
             a.callpropvoid(add_creature, 1)
-            a.getlocal(L_CNT)
-            a.decrement()
-            a.setlocal(L_CNT)
-            a.getlocal(L_CNT)
-            a.pushbyte(0)
-            a.ifgt(f"nb_loop{i}")
-            a.label(f"nb_skip{i}")
         a.jump_to("click_done")
         a.label(miss)
 
@@ -1040,23 +1007,15 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_fps")
 
-    hit(a, L_MX, L_MY, OK_X, Y_FPS, OK_W, 24, "click_done")
-    read_tf(s_tfFps)
-    a.getlocal(L_TMP)
-    a.pushbyte(0)
-    a.ifle("click_done")
-    a.getlocal(L_TMP)
-    a.pushshort(240)
-    a.ifle("fps_ok")
-    a.pushshort(240)
-    a.setlocal(L_TMP)
-    a.label("fps_ok")
-    a.getlocal0()
-    a.getproperty(stage_mn)
-    a.pushstring(s_frameRate)
-    a.getlocal(L_TMP)
-    a.convert_d()
-    a.setproperty_l(star_mn)
+    if experimental:
+        hit(a, L_MX, L_MY, OK_X, Y_FPS, OK_W, 24, "click_done")
+        read_tf(s_tfFps)
+        a.getlocal0()
+        a.getproperty(stage_mn)
+        a.pushstring(s_frameRate)
+        a.getlocal(L_TMP)
+        a.convert_d()
+        a.setproperty_l(star_mn)
 
     a.label("click_done")
     a.label("no_click")
@@ -1131,10 +1090,10 @@ def patch_one(data: bytes, experimental: bool) -> bytes:
 def main():
     print("load", SRC)
     base = load_swf(SRC)
-    menu = patch_one(base, False)
-    p1 = ROOT / f"orion_menu_patch{PATCH}.swf"
-    write_swf(p1, menu, compressed=True)
-    print("ok", p1.name)
+    exp = patch_one(base, True)
+    p2 = ROOT / f"orion_menu_patch{PATCH}.swf"
+    write_swf(p2, exp, compressed=True)
+    print("ok", p2.name)
 
 
 if __name__ == "__main__":
