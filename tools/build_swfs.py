@@ -529,7 +529,7 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
         ("Император", U + "UfoEntity", "u_big_ufo"),
         ("Призрак Москитона", U + "UBigShadowSpiderEntity", "u_big_shadow_spider"),
         ("Призрак Тирана", U + "UShadowZombieEntity", "u_shadow_zombie"),
-        ("Призрак Императора", U + "UfoShadowEntity", "u_big_ufo"),
+        ("Призрак Императора", U + "UfoShadowEntity", "u_big_shadow_ufo"),
         ("Свергнутый Король", U + "UGnomeEntity", "u_gnome"),
         ("Страж (машина)", U + "UTransformerEntity", "robot_transformer"),
         ("Горгулья", U + "UGargoyleEntity", "gargoyle"),
@@ -537,7 +537,7 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
     ]
     catalog_mobs = [
         ("Заяц", M + "HareEntity", "hare"),
-        ("Курица", M + "ChickenEntity", "chicken_"),
+        ("Курица", M + "ChickenEntity", "chicken_1"),
         ("Овца", M + "SheepEntity", "sheep"),
         ("Койот", M + "CoyoteEntity", "coyote_brown"),
         ("Серый койот", M + "CoyoteGrayEntity", "coyote_gray"),
@@ -548,7 +548,7 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
         ("Паук", M + "SpiderEntity", "spider"),
         ("Крохотный паук", M + "TinySpiderEntity", "spider_tiny"),
         ("Большой паук", M + "BigSpiderEntity", "big_spider"),
-        ("Гном-воин", M + "GnomeWarriorEntity", "gnome_warrior_"),
+        ("Гном-воин", M + "GnomeWarriorEntity", "gnome_warrior_1"),
         ("Гном-шахтёр", M + "GnomeMinerEntity", "gnome_miner"),
         ("Гном-алхимик", M + "GnomeAlchemistEntity", "gnome_alchemist"),
         ("Безумный гном", M + "MadGnomeEntity", "mad_gnome"),
@@ -1031,17 +1031,11 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
     add_tf(s_next, 66, 10, 24, 20, parent=L_TGT)
     add_tf(s_iclick, 104, 10, 320, 20, store=s_tfIName, parent=L_TGT)
 
+    _bsk = [0]
+
     def add_bmp(name_s, x, y, w, h, parent, icon_key=None, items_id=None):
         a.findpropstrict(BMP)
-        if icon_key is not None:
-            a.getlex(images_cls)
-            a.getproperty(mobs_icons_mn)
-            a.pushstring(icon_key)
-            a.getproperty_l(star_mn)
-            a.constructprop(BMP, 1)
-        else:
-            a.pushnull()
-            a.constructprop(BMP, 1)
+        a.constructprop(BMP, 0)
         a.setlocal(L_TMP)
         a.getlocal(L_TMP)
         a.pushstring(name_s)
@@ -1061,6 +1055,22 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
         a.getlocal(L_TMP)
         a.pushtrue()
         a.setproperty(smoothing_mn)
+        if icon_key is not None:
+            skip = f"bsk{_bsk[0]}"
+            _bsk[0] += 1
+            a.getlex(images_cls)
+            a.getproperty(mobs_icons_mn)
+            a.pushstring(icon_key)
+            a.getproperty_l(star_mn)
+            a.coerce_a()
+            a.setlocal(L_CNT)
+            a.getlocal(L_CNT)
+            a.pushnull()
+            a.ifeq(skip)
+            a.getlocal(L_TMP)
+            a.getlocal(L_CNT)
+            a.setproperty(bitmapData_mn)
+            a.label(skip)
         a.getlocal(parent)
         a.getlocal(L_TMP)
         a.callpropvoid(addChild, 1)
