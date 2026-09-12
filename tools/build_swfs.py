@@ -43,6 +43,7 @@ COL_HEAD, COL_GIVE = 0x16120A, 0x3A5A2A
 
 L_MENU, L_TMP, L_FMT = 4, 5, 6
 L_MX, L_MY, L_DOWN, L_PL = 7, 8, 9, 10
+L_PG = 12
 NLOCAL = 14
 
 
@@ -783,7 +784,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     def loadpage(sidx):
         dget(sidx)
         a.coerce_a()
-        a.setlocal(L_TMP)
+        a.setlocal(L_PG)
 
     ENH_N = [
         ("orion.worlds.entities.mobs.unique::UGargoyleEntity", "Древний Страж"),
@@ -833,51 +834,51 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     # ---- pg1 Предметы ----
     mkpage(s_pg1)
     loadpage(s_pg1)
-    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
-    add_tf(s_note_items, 16, 10, 408, 22, loc=L_TMP)
+    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    add_tf(s_note_items, 16, 62, 408, 22, loc=L_PG)
 
     # ---- pg2 Боссы ----
     mkpage(s_pg2)
     loadpage(s_pg2)
-    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
-    add_tf(s_qty, 286, 8, 56, 20, loc=L_TMP)
-    add_tf(s_1, 344, 6, 84, 22, store=s_tfCnt, inp=True, def_text=s_1, loc=L_TMP)
-    add_tf(s_bh, 16, 34, 408, 20, loc=L_TMP)
+    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    add_tf(s_qty, 286, 62, 56, 20, loc=L_PG)
+    add_tf(s_1, 344, 60, 84, 22, store=s_tfCnt, inp=True, def_text=s_1, loc=L_PG)
+    add_tf(s_bh, 16, 90, 408, 20, loc=L_PG)
     for _i, (_cls, _lab) in enumerate(ENH_N):
         _x = 16 + (_i % 2) * 212
-        _y = 58 + (_i // 2) * 26
-        fill(COL_BTN, _x, _y, 204, 24, 5, loc=L_TMP)
-        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, 196, 18, loc=L_TMP)
-    add_tf(s_bs, 16, 176, 408, 20, loc=L_TMP)
+        _y = 114 + (_i // 2) * 26
+        fill(COL_BTN, _x, _y, 204, 24, 5, loc=L_PG)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, 196, 18, loc=L_PG)
+    add_tf(s_bs, 16, 224, 408, 20, loc=L_PG)
     for _i, (_cls, _lab) in enumerate(ENH_S):
         _x = 16 + (_i % 2) * 212
-        _y = 200 + (_i // 2) * 26
-        fill(COL_BTN, _x, _y, 204, 24, 5, loc=L_TMP)
-        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, 196, 18, loc=L_TMP)
-    add_tf(s_bo, 16, 284, 408, 20, loc=L_TMP)
+        _y = 248 + (_i // 2) * 26
+        fill(COL_BTN, _x, _y, 204, 24, 5, loc=L_PG)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, 196, 18, loc=L_PG)
+    add_tf(s_bo, 16, 306, 408, 20, loc=L_PG)
     for _i, (_cls, _lab) in enumerate(ORIG):
-        _y = 308 + _i * 26
-        fill(COL_BTN, 16, _y, 408, 24, 5, loc=L_TMP)
-        add_tf(abc.intern_string(_lab), 20, _y + 3, 400, 18, loc=L_TMP)
+        _y = 330 + _i * 26
+        fill(COL_BTN, 16, _y, 408, 24, 5, loc=L_PG)
+        add_tf(abc.intern_string(_lab), 20, _y + 3, 400, 18, loc=L_PG)
 
     # ---- pg3 Мобы ----
     mkpage(s_pg3)
     loadpage(s_pg3)
-    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
-    add_tf(s_note_mobs, 16, 10, 408, 22, loc=L_TMP)
+    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    add_tf(s_note_mobs, 16, 62, 408, 22, loc=L_PG)
 
     # ---- pg4 Настройки ----
     mkpage(s_pg4)
     loadpage(s_pg4)
-    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
-    add_tf(s_exp, 16, 10, 408, 20, loc=L_TMP)
-    add_tf(s_fpsl, 16, 40, 90, 22, loc=L_TMP)
-    add_tf(s_120, 116, 40, 190, 22, store=s_tfFps, inp=True, def_text=s_120, loc=L_TMP)
-    fill(COL_BTN, 320, 40, 100, 24, 6, loc=L_TMP)
-    add_tf(s_ok, 350, 42, 60, 20, loc=L_TMP)
-    add_tf(s_gfxt, 16, 84, 408, 20, loc=L_TMP)
-    fill(COL_BTN, 16, 110, 408, 28, 6, loc=L_TMP)
-    add_tf(s_light_off, 24, 114, 396, 20, store=s_tfLight, loc=L_TMP)
+    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    add_tf(s_exp, 16, 62, 408, 20, loc=L_PG)
+    add_tf(s_fpsl, 16, 92, 90, 22, loc=L_PG)
+    add_tf(s_120, 116, 92, 190, 22, store=s_tfFps, inp=True, def_text=s_120, loc=L_PG)
+    fill(COL_BTN, 320, 92, 100, 24, 6, loc=L_PG)
+    add_tf(s_ok, 350, 94, 60, 20, loc=L_PG)
+    add_tf(s_gfxt, 16, 136, 408, 20, loc=L_PG)
+    fill(COL_BTN, 16, 162, 408, 28, 6, loc=L_PG)
+    add_tf(s_light_off, 24, 166, 396, 20, store=s_tfLight, loc=L_PG)
 
     # ---- tab labels ----
     for _i, _s in enumerate((s_t0, s_t1, s_t2, s_t3, s_t4)):
@@ -1248,7 +1249,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.convert_i()
     a.pushbyte(4)
     a.ifne("no_set_page")
-    hit(a, L_MX, L_MY, 320, 40, 100, 24, "set_light")
+    hit(a, L_MX, L_MY, 320, 92, 100, 24, "set_light")
     read_tf(s_tfFps)
     a.getlocal(L_TMP)
     a.pushbyte(1)
@@ -1264,7 +1265,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.setproperty_l(star_mn)
     a.jump_to("click_done")
     a.label("set_light")
-    hit(a, L_MX, L_MY, 16, 110, 408, 28, "click_done")
+    hit(a, L_MX, L_MY, 16, 162, 408, 28, "click_done")
     dget(s_lightOn)
     a.convert_b()
     a.iftrue("light_to_false")
