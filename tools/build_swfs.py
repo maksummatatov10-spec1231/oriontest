@@ -501,6 +501,12 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_page = abc.intern_string("page")
     s_lightOn = abc.intern_string("lightOn")
     s_tfLight = abc.intern_string("tfLight")
+    s_hl = abc.intern_string("hl")
+    s_bsEnh = abc.intern_string("bsEnh")
+    s_bsOrig = abc.intern_string("bsOrig")
+    s_bossMode = abc.intern_string("bossMode")
+    s_bEnh = abc.intern_string("Orion Enhanced")
+    s_bOrig = abc.intern_string("Оригинал")
     s_exp = abc.intern_string("Экспериментальные")
     s_gfxt = abc.intern_string("Настройки графики")
     s_light = abc.intern_string("Свет")
@@ -519,7 +525,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     boss_labels = [abc.intern_string(b["name"][:22]) for b in BOSSES]
 
     H = 640
-    TAB_Y, TAB_H, TAB_W = 26, 28, 88
+    TAB_H, TAB_W = 28, 88
+    TAB_Y = H - 34
     DY = 30
     Y_LVL, Y_HP, Y_GOD, Y_SPD = 48 + DY, 80 + DY, 112 + DY, 144 + DY
     Y_ITEM, Y_HELP, Y_BOSS = 176 + DY, 208 + DY, 248 + DY
@@ -640,8 +647,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     fill(COL_BTN, OK_X, Y_HM, OK_W, 24, 6)
     for xx in (16, 122, 228, 334):
         fill(COL_BTN, xx, Y_TIME, 90, 24, 6)
-    for i in range(15):
-        fill(COL_BTN, 16 + (i % 3) * 140, Y_BOSS + (i // 3) * 28, 132, 24, 5)
+    fill(COL_BTN, 16, Y_BOSS - 54, 200, 24, 6)
+    fill(COL_BTN, 228, Y_BOSS - 54, 200, 24, 6)
     if experimental:
         fill(COL_BTN, OK_X, Y_FPS, OK_W, 24, 6)
 
@@ -724,7 +731,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             dset_local(store, L_TMP)
 
     add_tf(s_title, 12, 8, 420, 24)
-    add_tf(s_hint, 12, H - 22, 420, 18)
+    add_tf(s_hint, 232, 10, 200, 18)
     add_tf(s_lvl, 16, Y_LVL, 100, 22)
     add_tf(s_1, IN_X, Y_LVL, IN_W, 22, store=s_tfLvl, inp=True, def_text=s_1)
     add_tf(s_ok, OK_X + 28, Y_LVL + 2, 60, 20)
@@ -742,8 +749,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     add_tf(s_give, OK_X + 10, Y_ITEM + 2, 70, 20)
     add_tf(s_help, 16, Y_HELP, 408, 20)
     add_tf(s_boss, 16, Y_BOSS - 20, 400, 18)
-    for i, lab in enumerate(boss_labels):
-        add_tf(lab, 20 + (i % 3) * 140, Y_BOSS + (i // 3) * 28 + 3, 124, 18)
+    add_tf(s_bEnh, 20, Y_BOSS - 51, 192, 18)
+    add_tf(s_bOrig, 232, Y_BOSS - 51, 192, 18)
     add_tf(s_morn, 36, Y_TIME + 3, 70, 18)
     add_tf(s_day, 142, Y_TIME + 3, 70, 18)
     add_tf(s_eve, 244, Y_TIME + 3, 70, 18)
@@ -764,6 +771,33 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     fill(COL_HEAD, 0, TAB_Y, W, TAB_H, 0)
     for _i in range(5):
         fill(COL_BTN, 4 + _i * TAB_W, TAB_Y + 2, TAB_W - 8, TAB_H - 4, 5)
+    # подсветка активной вкладки (отдельный клип, двигаем по x)
+    a.findpropstrict(MC)
+    a.constructprop(MC, 0)
+    a.setlocal(L_TMP)
+    a.getlocal(L_TMP)
+    a.pushstring(s_hl)
+    a.setproperty(name_mn)
+    a.getlocal(L_TMP)
+    a.getproperty(graphics)
+    push_color(COL_GOLD)
+    a.callpropvoid(beginFill, 1)
+    a.getlocal(L_TMP)
+    a.getproperty(graphics)
+    a.pushshort(4)
+    a.pushshort(TAB_Y + 2)
+    a.pushshort(TAB_W - 8)
+    a.pushshort(TAB_H - 4)
+    a.pushbyte(5)
+    a.pushbyte(5)
+    a.callpropvoid(drawRoundRect, 6)
+    a.getlocal(L_TMP)
+    a.getproperty(graphics)
+    a.callpropvoid(endFill, 0)
+    a.getlocal(L_MENU)
+    a.getlocal(L_TMP)
+    a.callpropvoid(addChild, 1)
+    dset_local(s_hl, L_TMP)
 
     # ================= PAGES =================
     def mkpage(sidx):
@@ -785,6 +819,18 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         dget(sidx)
         a.coerce_a()
         a.setlocal(L_PG)
+
+    def boss_mode_vis(mode):
+        for _s, _m in ((s_bsEnh, 0), (s_bsOrig, 1)):
+            dget(_s)
+            a.coerce_a()
+            a.setlocal(L_PG)
+            a.getlocal(L_PG)
+            if _m == mode:
+                a.pushtrue()
+            else:
+                a.pushfalse()
+            a.setproperty(visible)
 
     ENH_N = [
         ("orion.worlds.entities.mobs.unique::UGargoyleEntity", "Древний Страж"),
@@ -831,16 +877,44 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             a.getlocal(L_TMP)
             a.callpropvoid(add_creature, 1)
 
+    def boss_pos(mode, i):
+        if mode == 0:
+            if i < 7:
+                return (16, Y_BOSS + i * 28, 200)
+            return (228, Y_BOSS + (i - 7) * 28, 200)
+        return (16, Y_BOSS + i * 28, 412)
+
+    # --- под-раздел «Боссы» быстрого меню: Enhanced (обычные слева / призрачные справа) ---
+    mkpage(s_bsEnh)
+    loadpage(s_bsEnh)
+    for _i, (_cls, _lab) in enumerate(ENH_N):
+        _x, _y, _w = boss_pos(0, _i)
+        fill(COL_BTN, _x, _y, _w, 24, 5, loc=L_PG)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, _w - 8, 18, loc=L_PG)
+    for _i, (_cls, _lab) in enumerate(ENH_S):
+        _x, _y, _w = boss_pos(0, 7 + _i)
+        fill(COL_BTN, _x, _y, _w, 24, 5, loc=L_PG)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, _w - 8, 18, loc=L_PG)
+    a.getlocal(L_PG)
+    a.pushtrue()
+    a.setproperty(visible)
+    mkpage(s_bsOrig)
+    loadpage(s_bsOrig)
+    for _i, (_cls, _lab) in enumerate(ORIG):
+        _x, _y, _w = boss_pos(1, _i)
+        fill(COL_BTN, _x, _y, _w, 24, 5, loc=L_PG)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, _w - 8, 18, loc=L_PG)
+
     # ---- pg1 Предметы ----
     mkpage(s_pg1)
     loadpage(s_pg1)
-    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
     add_tf(s_note_items, 16, 62, 408, 22, loc=L_PG)
 
     # ---- pg2 Боссы ----
     mkpage(s_pg2)
     loadpage(s_pg2)
-    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
     add_tf(s_qty, 286, 62, 56, 20, loc=L_PG)
     add_tf(s_1, 344, 60, 84, 22, store=s_tfCnt, inp=True, def_text=s_1, loc=L_PG)
     add_tf(s_bh, 16, 90, 408, 20, loc=L_PG)
@@ -864,13 +938,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     # ---- pg3 Мобы ----
     mkpage(s_pg3)
     loadpage(s_pg3)
-    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
     add_tf(s_note_mobs, 16, 62, 408, 22, loc=L_PG)
 
     # ---- pg4 Настройки ----
     mkpage(s_pg4)
     loadpage(s_pg4)
-    fill(COL_BG, 0, TAB_Y + TAB_H, W, H - TAB_Y - TAB_H, 0, loc=L_PG)
+    fill(COL_BG, 0, 0, W, TAB_Y, 0, loc=L_PG)
     add_tf(s_exp, 16, 62, 408, 20, loc=L_PG)
     add_tf(s_fpsl, 16, 92, 90, 22, loc=L_PG)
     add_tf(s_120, 116, 92, 190, 22, store=s_tfFps, inp=True, def_text=s_120, loc=L_PG)
@@ -1117,28 +1191,72 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     a.jump_to("click_done")
     a.label("c_boss")
 
-    for i, mn in enumerate(boss_mns):
-        miss = f"nb{i}"
-        hit(a, L_MX, L_MY, 16 + (i % 3) * 140, Y_BOSS + (i // 3) * 28, 132, 24, miss)
-        need_player("click_done")
-        if mn:
-            a.findpropstrict(mn)
-            a.getlocal(L_PL)
-            a.getproperty(pos_mn)
-            a.getproperty(x_mn)
-            a.pushbyte(80)
-            a.add()
-            a.getlocal(L_PL)
-            a.getproperty(pos_mn)
-            a.getproperty(y_mn)
-            a.constructprop(mn, 2)
-            a.setlocal(L_TMP)
-            a.getlocal0()
-            a.getproperty(world_mn)
-            a.getlocal(L_TMP)
-            a.callpropvoid(add_creature, 1)
-        a.jump_to("click_done")
-        a.label(miss)
+    # количество для спавна (clamp 1..10, без циклов)
+    read_tf(s_tfCnt)
+    a.getlocal(L_TMP)
+    a.setlocal(13)
+    a.pushbyte(10)
+    a.getlocal(13)
+    a.iflt("qk1")
+    a.pushbyte(10)
+    a.setlocal(13)
+    a.label("qk1")
+    a.getlocal(13)
+    a.pushbyte(1)
+    a.ifge("qk2")
+    a.pushbyte(1)
+    a.setlocal(13)
+    a.label("qk2")
+
+    # раздел «Боссы» быстрого меню работает только на странице 0
+    dget(s_page)
+    a.convert_i()
+    a.pushbyte(0)
+    a.ifne("no_quick_boss")
+
+    # под-вкладки: Orion Enhanced / Оригинал
+    hit(a, L_MX, L_MY, 16, Y_BOSS - 54, 200, 24, "bsm1")
+    a.getlocal(L_MENU)
+    a.pushstring(s_bossMode)
+    a.pushbyte(0)
+    a.setproperty_l(star_mn)
+    boss_mode_vis(0)
+    a.jump_to("click_done")
+    a.label("bsm1")
+    hit(a, L_MX, L_MY, 228, Y_BOSS - 54, 200, 24, "bsm_done")
+    a.getlocal(L_MENU)
+    a.pushstring(s_bossMode)
+    a.pushbyte(1)
+    a.setproperty_l(star_mn)
+    boss_mode_vis(1)
+    a.jump_to("click_done")
+    a.label("bsm_done")
+
+    _boss_groups = (
+        (0, list(enumerate(ENH_N)) + list(enumerate(ENH_S, start=7))),
+        (1, list(enumerate(ORIG))),
+    )
+    for _mode, _group in _boss_groups:
+        for _gi, (_cls, _lab) in _group:
+            _x, _y, _w = boss_pos(_mode, _gi)
+            _miss = f"nb{_mode}_{_gi}"
+            hit(a, L_MX, L_MY, _x, _y, _w, 24, _miss)
+            need_player("click_done")
+            dget(s_bossMode)
+            a.convert_i()
+            a.pushbyte(_mode)
+            a.ifne("click_done")
+            _mn = boss_mn(_cls)
+            if _mn:
+                for _k in range(1, 11):
+                    a.pushbyte(_k)
+                    a.getlocal(13)
+                    a.iflt(f"sk{_mode}_{_gi}_{_k}")
+                    spawn_n(_mn, 1)
+                    a.label(f"sk{_mode}_{_gi}_{_k}")
+            a.jump_to("click_done")
+            a.label(_miss)
+    a.label("no_quick_boss")
 
     for i, (xx, hh, mm) in enumerate(((16, 6, 0), (122, 12, 0), (228, 20, 0), (334, 0, 0))):
         miss = f"nt{i}"
@@ -1196,6 +1314,12 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         a.pushbyte(_i)
         a.setproperty_l(star_mn)
         set_page_vis(_i)
+        dget(s_hl)
+        a.coerce_a()
+        a.setlocal(L_TMP)
+        a.getlocal(L_TMP)
+        a.pushshort(4 + _i * TAB_W)
+        a.setproperty(x_mn)
         a.jump_to("click_done")
         a.label(_miss)
 
