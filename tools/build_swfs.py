@@ -764,10 +764,12 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
     a.pushshort(48)
     a.setproperty(y_mn)
     a.getlocal(L_MENU)
-    a.pushtrue()
+    a.pushfalse()
     a.setproperty(visible)
-    for prop in (s_godOn, s_keyWas, s_mdWas, s_dragging, s_fpsSet):
+    for prop in (s_godOn, s_keyWas, s_dragging, s_fpsSet):
         dset_false(prop)
+    # leftover mouseDown from «войти в мир» must not be a menu click
+    dset_true(s_mdWas)
     a.getlocal(L_MENU)
     a.pushstring(s_page)
     a.pushbyte(0)
@@ -1404,7 +1406,7 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
     a.jump_to("click_done")
     a.label("c_spd")
 
-    hit(a, L_MX, L_MY, OK_X, Y_SPD, OK_W, 24, "c_item")
+    hit(a, L_MX, L_MY, OK_X, PAGE_Y + Y_SPD, OK_W, 24, "c_item")
     need_player("click_done")
     dget(s_tfSpd)
     a.getproperty(text_mn)
@@ -1820,6 +1822,12 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
     a.getlocal(L_PAGE)
     a.getlocal(L_TGT)
     a.setproperty(bitmapData_mn)
+    a.getlocal(L_PAGE)
+    a.pushshort(36)
+    a.setproperty(width_mn)
+    a.getlocal(L_PAGE)
+    a.pushshort(36)
+    a.setproperty(height_mn)
     a.getlocal(L_PAGE)
     a.pushtrue()
     a.setproperty(visible)
