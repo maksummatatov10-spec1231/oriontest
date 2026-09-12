@@ -34,7 +34,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 14
+PATCH = 15
 
 W, HEAD_H = 440, 38
 COL_GOLD, COL_BG, COL_BTN = 0xE4C36A, 0x0B1020, 0x1A2438
@@ -486,13 +486,44 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     s_0 = abc.intern_string("0")
     s_120 = abc.intern_string("120")
     s_restrict = abc.intern_string("0-9")
+    # --- tabs / new pages ---
+    s_t0 = abc.intern_string("Быстрое")
+    s_t1 = abc.intern_string("Предметы")
+    s_t2 = abc.intern_string("Боссы")
+    s_t3 = abc.intern_string("Мобы")
+    s_t4 = abc.intern_string("Настройки")
+    s_pg = abc.intern_string("pg")
+    s_pg1 = abc.intern_string("pg1")
+    s_pg2 = abc.intern_string("pg2")
+    s_pg3 = abc.intern_string("pg3")
+    s_pg4 = abc.intern_string("pg4")
+    s_page = abc.intern_string("page")
+    s_lightOn = abc.intern_string("lightOn")
+    s_tfLight = abc.intern_string("tfLight")
+    s_exp = abc.intern_string("Экспериментальные")
+    s_gfxt = abc.intern_string("Настройки графики")
+    s_light = abc.intern_string("Свет")
+    s_light_off = abc.intern_string("Свет: обычный (нажми)")
+    s_light_on = abc.intern_string("Свет: улучшенный (нажми)")
+    s_bh = abc.intern_string("Orion Enhanced — обычные")
+    s_bs = abc.intern_string("Orion Enhanced — призрачные")
+    s_bo = abc.intern_string("Оригинальный Orion (нет в этой сборке)")
+    s_qty = abc.intern_string("Кол-во")
+    s_note_items = abc.intern_string("Сетка спрайтов предметов — в следующей сборке")
+    s_note_mobs = abc.intern_string("Сетка спрайтов мобов — в следующей сборке")
+    s_orig_1 = abc.intern_string("Gargoule  ->  Древний Страж")
+    s_orig_2 = abc.intern_string("Huge Spider  ->  Король Москитон")
+    s_orig_3 = abc.intern_string("Zartan  ->  Тиран")
+    s_orig_4 = abc.intern_string("Fire Golem  ->  Огненный голем")
     boss_labels = [abc.intern_string(b["name"][:22]) for b in BOSSES]
 
-    H = 640 if experimental else 548
-    Y_LVL, Y_HP, Y_GOD, Y_SPD = 48, 80, 112, 144
-    Y_ITEM, Y_HELP, Y_BOSS = 176, 208, 248
-    Y_TIME, Y_HM = 428, 460
-    Y_SET, Y_FPS, Y_GFX = 500, 532, 564
+    H = 640
+    TAB_Y, TAB_H, TAB_W = 26, 28, 88
+    DY = 30
+    Y_LVL, Y_HP, Y_GOD, Y_SPD = 48 + DY, 80 + DY, 112 + DY, 144 + DY
+    Y_ITEM, Y_HELP, Y_BOSS = 176 + DY, 208 + DY, 248 + DY
+    Y_TIME, Y_HM = 428 + DY, 460 + DY
+    Y_SET, Y_FPS, Y_GFX = 500 + DY, 532 + DY, 564 + DY
     OK_X, OK_W, IN_X, IN_W = 340, 84, 118, 210
 
     a = A()
@@ -576,12 +607,13 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     for prop in (s_godOn, s_shiftWas, s_mdWas, s_dragging, s_fpsSet):
         dset_false(prop)
 
-    def fill(color, x, y, w, h, rnd=0):
-        a.getlocal(L_MENU)
+    def fill(color, x, y, w, h, rnd=0, loc=None):
+        loc = L_MENU if loc is None else loc
+        a.getlocal(loc)
         a.getproperty(graphics)
         push_color(color)
         a.callpropvoid(beginFill, 1)
-        a.getlocal(L_MENU)
+        a.getlocal(loc)
         a.getproperty(graphics)
         a.pushshort(x)
         a.pushshort(y)
@@ -593,7 +625,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             a.callpropvoid(drawRoundRect, 6)
         else:
             a.callpropvoid(drawRect, 4)
-        a.getlocal(L_MENU)
+        a.getlocal(loc)
         a.getproperty(graphics)
         a.callpropvoid(endFill, 0)
 
@@ -625,7 +657,8 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
     push_color(COL_TXT)
     a.setproperty(color_mn)
 
-    def add_tf(text_idx, x, y, w, h, store=None, inp=False, def_text=None):
+    def add_tf(text_idx, x, y, w, h, store=None, inp=False, def_text=None, loc=None):
+        loc = L_MENU if loc is None else loc
         a.findpropstrict(TF)
         a.constructprop(TF, 0)
         a.setlocal(L_TMP)
@@ -683,7 +716,7 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
             a.getlocal(L_TMP)
             a.pushstring(text_idx)
             a.setproperty(text_mn)
-        a.getlocal(L_MENU)
+        a.getlocal(loc)
         a.getlocal(L_TMP)
         a.callpropvoid(addChild, 1)
         if store:
@@ -725,6 +758,130 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         add_tf(s_120, IN_X, Y_FPS, IN_W, 22, store=s_tfFps, inp=True, def_text=s_120)
         add_tf(s_ok, OK_X + 28, Y_FPS + 2, 60, 20)
         add_tf(s_gfx, 16, Y_GFX, 408, 20)
+
+    # ================= TAB BAR =================
+    fill(COL_HEAD, 0, TAB_Y, W, TAB_H, 0)
+    for _i in range(5):
+        fill(COL_BTN, 4 + _i * TAB_W, TAB_Y + 2, TAB_W - 8, TAB_H - 4, 5)
+
+    # ================= PAGES =================
+    def mkpage(sidx):
+        a.findpropstrict(MC)
+        a.constructprop(MC, 0)
+        a.setlocal(L_TMP)
+        a.getlocal(L_TMP)
+        a.pushstring(sidx)
+        a.setproperty(name_mn)
+        a.getlocal(L_TMP)
+        a.pushfalse()
+        a.setproperty(visible)
+        a.getlocal(L_MENU)
+        a.getlocal(L_TMP)
+        a.callpropvoid(addChild, 1)
+        dset_local(sidx, L_TMP)
+
+    def loadpage(sidx):
+        dget(sidx)
+        a.coerce_a()
+        a.setlocal(L_TMP)
+
+    ENH_N = [
+        ("orion.worlds.entities.mobs.unique::UGargoyleEntity", "Древний Страж"),
+        ("orion.worlds.entities.mobs.unique::UBigSpiderEntity", "Король Москитон"),
+        ("orion.worlds.entities.mobs.unique::UZombieEntity", "Тиран"),
+        ("orion.worlds.entities.mobs.unique::UfoEntity", "Император Финалиум"),
+        ("orion.worlds.entities.mobs.unique::UGnomeEntity", "Свергнутый Король"),
+        ("orion.worlds.entities.mobs.unique::UTransformerEntity", "Страж-машина"),
+        ("orion.worlds.entities.mobs.unique::UStoneGolemEntity", "Огненный голем"),
+    ]
+    ENH_S = [
+        ("orion.worlds.entities.mobs.unique::UBigShadowSpiderEntity", "Призрак Москитона"),
+        ("orion.worlds.entities.mobs.unique::UShadowZombieEntity", "Призрак Тирана"),
+        ("orion.worlds.entities.mobs.unique::UfoShadowEntity", "Призрак Императора"),
+    ]
+    # оригинальных классов в этой сборке нет — спавним Enhanced-аналог
+    ORIG = [
+        ("orion.worlds.entities.mobs.unique::UGargoyleEntity", "Gargoule > Древний Страж"),
+        ("orion.worlds.entities.mobs.unique::UBigSpiderEntity", "Huge Spider > Москитон"),
+        ("orion.worlds.entities.mobs.unique::UZombieEntity", "Zartan > Тиран"),
+        ("orion.worlds.entities.mobs.unique::UStoneGolemEntity", "Fire Golem > Огн. голем"),
+    ]
+
+    def boss_mn(cls):
+        ns, _, nm = cls.rpartition("::")
+        return abc.find_qname(ns, nm)
+
+    def spawn_n(mn, times):
+        """Развёрнутый спавн N боссов — без циклов и без новых опкодов."""
+        for _ in range(times):
+            a.findpropstrict(mn)
+            a.getlocal(L_PL)
+            a.getproperty(pos_mn)
+            a.getproperty(x_mn)
+            a.pushbyte(80)
+            a.add()
+            a.getlocal(L_PL)
+            a.getproperty(pos_mn)
+            a.getproperty(y_mn)
+            a.constructprop(mn, 2)
+            a.setlocal(L_TMP)
+            a.getlocal0()
+            a.getproperty(world_mn)
+            a.getlocal(L_TMP)
+            a.callpropvoid(add_creature, 1)
+
+    # ---- pg1 Предметы ----
+    mkpage(s_pg1)
+    loadpage(s_pg1)
+    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
+    add_tf(s_note_items, 16, 10, 408, 22, loc=L_TMP)
+
+    # ---- pg2 Боссы ----
+    mkpage(s_pg2)
+    loadpage(s_pg2)
+    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
+    add_tf(s_qty, 286, 8, 56, 20, loc=L_TMP)
+    add_tf(s_1, 344, 6, 84, 22, store=s_tfCnt, inp=True, def_text=s_1, loc=L_TMP)
+    add_tf(s_bh, 16, 34, 408, 20, loc=L_TMP)
+    for _i, (_cls, _lab) in enumerate(ENH_N):
+        _x = 16 + (_i % 2) * 212
+        _y = 58 + (_i // 2) * 26
+        fill(COL_BTN, _x, _y, 204, 24, 5, loc=L_TMP)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, 196, 18, loc=L_TMP)
+    add_tf(s_bs, 16, 176, 408, 20, loc=L_TMP)
+    for _i, (_cls, _lab) in enumerate(ENH_S):
+        _x = 16 + (_i % 2) * 212
+        _y = 200 + (_i // 2) * 26
+        fill(COL_BTN, _x, _y, 204, 24, 5, loc=L_TMP)
+        add_tf(abc.intern_string(_lab), _x + 4, _y + 3, 196, 18, loc=L_TMP)
+    add_tf(s_bo, 16, 284, 408, 20, loc=L_TMP)
+    for _i, (_cls, _lab) in enumerate(ORIG):
+        _y = 308 + _i * 26
+        fill(COL_BTN, 16, _y, 408, 24, 5, loc=L_TMP)
+        add_tf(abc.intern_string(_lab), 20, _y + 3, 400, 18, loc=L_TMP)
+
+    # ---- pg3 Мобы ----
+    mkpage(s_pg3)
+    loadpage(s_pg3)
+    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
+    add_tf(s_note_mobs, 16, 10, 408, 22, loc=L_TMP)
+
+    # ---- pg4 Настройки ----
+    mkpage(s_pg4)
+    loadpage(s_pg4)
+    fill(COL_BG, 0, 0, W, H, 12, loc=L_TMP)
+    add_tf(s_exp, 16, 10, 408, 20, loc=L_TMP)
+    add_tf(s_fpsl, 16, 40, 90, 22, loc=L_TMP)
+    add_tf(s_120, 116, 40, 190, 22, store=s_tfFps, inp=True, def_text=s_120, loc=L_TMP)
+    fill(COL_BTN, 320, 40, 100, 24, 6, loc=L_TMP)
+    add_tf(s_ok, 350, 42, 60, 20, loc=L_TMP)
+    add_tf(s_gfxt, 16, 84, 408, 20, loc=L_TMP)
+    fill(COL_BTN, 16, 110, 408, 28, 6, loc=L_TMP)
+    add_tf(s_light_off, 24, 114, 396, 20, store=s_tfLight, loc=L_TMP)
+
+    # ---- tab labels ----
+    for _i, _s in enumerate((s_t0, s_t1, s_t2, s_t3, s_t4)):
+        add_tf(_s, 4 + _i * TAB_W + 8, TAB_Y + 5, TAB_W - 16, 20)
 
     a.getlocal0()
     a.getproperty(stage_mn)
@@ -1016,6 +1173,125 @@ def build_code(abc: Abc, orig_code: bytes, experimental: bool) -> bytes:
         a.getlocal(L_TMP)
         a.convert_d()
         a.setproperty_l(star_mn)
+
+    # ================= TAB CLICKS + PAGE CONTENT =================
+    def set_page_vis(active):
+        for _idx, _sidx in enumerate((s_pg1, s_pg2, s_pg3, s_pg4), start=1):
+            dget(_sidx)
+            a.coerce_a()
+            a.setlocal(L_TMP)
+            a.getlocal(L_TMP)
+            if _idx == active:
+                a.pushtrue()
+            else:
+                a.pushfalse()
+            a.setproperty(visible)
+
+    for _i in range(5):
+        _miss = f"tabm{_i}"
+        hit(a, L_MX, L_MY, 4 + _i * TAB_W, TAB_Y, TAB_W - 8, TAB_H, _miss)
+        a.getlocal(L_MENU)
+        a.pushstring(s_page)
+        a.pushbyte(_i)
+        a.setproperty_l(star_mn)
+        set_page_vis(_i)
+        a.jump_to("click_done")
+        a.label(_miss)
+
+    # --- pg2 Боссы: кнопки (только когда открыта вкладка 2) ---
+    dget(s_page)
+    a.convert_i()
+    a.pushbyte(2)
+    a.ifne("no_boss_page")
+    need_player("click_done")
+    read_tf(s_tfCnt)
+    a.getlocal(L_TMP)
+    a.setlocal(13)
+    # clamp 1..10 без новых опкодов: if 10 < cnt -> cnt = 10 ; if cnt < 1 -> cnt = 1
+    a.pushbyte(10)
+    a.getlocal(13)
+    a.iflt("bq_ok1")
+    a.pushbyte(10)
+    a.setlocal(13)
+    a.label("bq_ok1")
+    a.getlocal(13)
+    a.pushbyte(1)
+    a.ifge("bq_ok2")
+    a.pushbyte(1)
+    a.setlocal(13)
+    a.label("bq_ok2")
+
+    def boss_button(x, y, w, cls):
+        _mn = boss_mn(cls)
+        _miss = f"bb{cls.split('::')[-1]}{x}{y}"
+        hit(a, L_MX, L_MY, x, y, w, 24, _miss)
+        if _mn:
+            for _k in range(1, 11):
+                a.pushbyte(_k)
+                a.getlocal(13)
+                a.iflt(f"sk_{_miss}_{_k}")
+                spawn_n(_mn, 1)
+                a.label(f"sk_{_miss}_{_k}")
+        a.jump_to("click_done")
+        a.label(_miss)
+
+    for _i, (_cls, _lab) in enumerate(ENH_N):
+        boss_button(16 + (_i % 2) * 212, 58 + (_i // 2) * 26, 204, _cls)
+    for _i, (_cls, _lab) in enumerate(ENH_S):
+        boss_button(16 + (_i % 2) * 212, 200 + (_i // 2) * 26, 204, _cls)
+    for _i, (_cls, _lab) in enumerate(ORIG):
+        boss_button(16, 308 + _i * 26, 408, _cls)
+    a.label("no_boss_page")
+
+    # --- pg4 Настройки: FPS + переключатель света ---
+    dget(s_page)
+    a.convert_i()
+    a.pushbyte(4)
+    a.ifne("no_set_page")
+    hit(a, L_MX, L_MY, 320, 40, 100, 24, "set_light")
+    read_tf(s_tfFps)
+    a.getlocal(L_TMP)
+    a.pushbyte(1)
+    a.ifge("fps_apply")
+    a.pushbyte(60)
+    a.setlocal(L_TMP)
+    a.label("fps_apply")
+    a.getlocal0()
+    a.getproperty(stage_mn)
+    a.pushstring(s_frameRate)
+    a.getlocal(L_TMP)
+    a.convert_d()
+    a.setproperty_l(star_mn)
+    a.jump_to("click_done")
+    a.label("set_light")
+    hit(a, L_MX, L_MY, 16, 110, 408, 28, "click_done")
+    dget(s_lightOn)
+    a.convert_b()
+    a.iftrue("light_to_false")
+    a.pushtrue()
+    a.jump_to("light_toggled")
+    a.label("light_to_false")
+    a.pushfalse()
+    a.label("light_toggled")
+    a.setlocal(L_TMP)
+    a.getlocal(L_MENU)
+    a.pushstring(s_lightOn)
+    a.getlocal(L_TMP)
+    a.setproperty_l(star_mn)
+    dget(s_tfLight)
+    a.coerce_a()
+    a.setlocal(13)
+    a.getlocal(13)
+    a.getlocal(L_TMP)
+    a.convert_b()
+    a.iffalse("light_off_lbl")
+    a.pushstring(s_light_on)
+    a.jump_to("light_lbl_done")
+    a.label("light_off_lbl")
+    a.pushstring(s_light_off)
+    a.label("light_lbl_done")
+    a.setproperty(text_mn)
+    a.label("no_set_page")
 
     a.label("click_done")
     a.label("no_click")
