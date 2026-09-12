@@ -33,7 +33,7 @@ from patch_orion import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Orion.swf"
-PATCH = 11
+PATCH = 12
 
 W, HEAD_H = 440, 38
 TAB_Y, TAB_H, TAB_W = 38, 28, 88
@@ -1049,14 +1049,12 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
         a.pushshort(y)
         a.setproperty(y_mn)
         a.getlocal(L_TMP)
-        a.pushshort(w)
-        a.setproperty(width_mn)
-        a.getlocal(L_TMP)
-        a.pushshort(h)
-        a.setproperty(height_mn)
-        a.getlocal(L_TMP)
         a.pushtrue()
         a.setproperty(smoothing_mn)
+        # patch12: width/height НЕ до bitmapData! У пустого Bitmap baseWidth=0
+        # и setter width вычисляет scaleX = w/0 = Infinity — в AIR это роняет
+        # процесс (p11: закрылось при «старт»). Размер ставится только после
+        # присвоения bitmapData (ниже) либо в do_fill (там порядок верный).
         if icon_key is not None:
             skip = f"bsk{_bsk[0]}"
             _bsk[0] += 1
@@ -1072,6 +1070,12 @@ def build_code(abc: Abc, orig_code: bytes) -> bytes:
             a.getlocal(L_TMP)
             a.getlocal(L_CNT)
             a.setproperty(bitmapData_mn)
+            a.getlocal(L_TMP)
+            a.pushshort(w)
+            a.setproperty(width_mn)
+            a.getlocal(L_TMP)
+            a.pushshort(h)
+            a.setproperty(height_mn)
             a.label(skip)
         a.getlocal(parent)
         a.getlocal(L_TMP)
